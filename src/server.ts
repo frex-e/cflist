@@ -4,16 +4,21 @@ import { createApp } from "./app.js";
 import { openDb } from "./db/connection.js";
 import { migrate } from "./db/migrate.js";
 import { latestSuccessfulSyncAgeMs, problemCount } from "./db/queries.js";
-import { syncCodeforces } from "./cf/sync.js";
+import { syncCatalog } from "./cf/sync.js";
 
 const db = openDb(config.dbPath);
 migrate(db);
 
 const publicRoot = process.env.PUBLIC_ROOT ?? "./src";
 const app = createApp(db, {
-  handle: config.cfHandle,
-  adminToken: config.adminToken,
   publicRoot,
+  authBaseURL: config.authBaseUrl,
+  authSecret: config.authSecret,
+  authTrustedOrigins: [
+    ...config.authTrustedOrigins,
+    `http://localhost:${config.port}`,
+    `http://127.0.0.1:${config.port}`,
+  ],
 });
 
 const maybeSync = (): void => {
@@ -22,8 +27,8 @@ const maybeSync = (): void => {
   const shouldSync = problemCount(db) === 0 || age === undefined || age > maxAgeMs;
   if (!shouldSync) return;
 
-  void syncCodeforces(db, config.cfHandle).catch((error) => {
-    console.error("Initial/background sync failed:", error);
+  void syncCatalog(db).catch((error) => {
+    console.error("Initial/background catalog sync failed:", error);
   });
 };
 

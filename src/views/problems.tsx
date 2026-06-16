@@ -2,6 +2,7 @@ import type { Child } from "hono/jsx";
 import { defaultSortDirection, type FilterOptions, type ListResult, type ProblemFilters, type ProblemRow } from "../db/queries.js";
 import { formatDateTime, formatNumber } from "./html.js";
 import { layout } from "./layout.js";
+import type { AuthUser } from "../auth.js";
 
 type ProblemsPageOptions = {
   filters: ProblemFilters;
@@ -9,7 +10,7 @@ type ProblemsPageOptions = {
   result: ListResult;
   latestSync?: { started_at: string; finished_at: string | null; status: string; message: string | null };
   syncRunning: boolean;
-  adminTokenEnabled: boolean;
+  user: AuthUser;
 };
 
 type PagerData = {
@@ -75,7 +76,7 @@ const pagerData = (filters: ProblemFilters, total: number): PagerData => {
 };
 
 export const problemSummaryText = ({ result, filters }: ProblemsPageOptions): string => {
-  return `${formatNumber(result.total)} matched, ${formatNumber(result.solved)} solved, ${formatNumber(result.unsolved)} unsolved for ${filters.handle}`;
+  return `${formatNumber(result.total)} matched, ${formatNumber(result.solved)} solved, ${formatNumber(result.unsolved)} unsolved for ${filters.cfHandle}`;
 };
 
 export const problemSummaryOutOfBand = (options: ProblemsPageOptions): string => {
@@ -115,13 +116,9 @@ const ratingTitle = (rating: number | null): { name: string; className: string }
   return { name: "Legendary Grandmaster", className: "rank-legendary-grandmaster" };
 };
 
-const StatusControl = (props: { row: ProblemRow; returnTo: string; adminTokenEnabled: boolean }) => {
-  const { row, returnTo, adminTokenEnabled } = props;
+const StatusControl = (props: { row: ProblemRow; returnTo: string }) => {
+  const { row, returnTo } = props;
   const action = `/problems/${row.contest_id}/${encodeURIComponent(row.problem_index)}/override`;
-
-  if (adminTokenEnabled) {
-    return <span class="status unsolved disabled-status" title="Manual status changes require admin access"></span>;
-  }
 
   if (row.cf_solved === 1) {
     return (
@@ -151,9 +148,8 @@ const ProblemRow = (props: {
   row: ProblemRow;
   showTags: boolean;
   returnTo: string;
-  adminTokenEnabled: boolean;
 }) => {
-  const { row, showTags, returnTo, adminTokenEnabled } = props;
+  const { row, showTags, returnTo } = props;
   const tags = tagsForRow(row);
   const problemId = `${row.contest_id}${row.problem_index}`;
   const title = ratingTitle(row.rating);
@@ -167,7 +163,7 @@ const ProblemRow = (props: {
       data-problem-index={row.problem_index}
     >
       <td data-status-cell>
-        <StatusControl row={row} returnTo={returnTo} adminTokenEnabled={adminTokenEnabled} />
+        <StatusControl row={row} returnTo={returnTo} />
       </td>
       <td class="mono">
         <a href={problemHref} rel="noreferrer" target="_blank">
@@ -202,7 +198,7 @@ const ProblemRow = (props: {
 
 export const problemRow = (
   row: ProblemRow,
-  options: { showTags: boolean; returnTo: string; adminTokenEnabled: boolean },
+  options: { showTags: boolean; returnTo: string },
 ): string => render(<ProblemRow row={row} {...options} />);
 
 const FilterForm = ({ filters, options }: ProblemsPageOptions) => {
@@ -369,7 +365,7 @@ const FilterForm = ({ filters, options }: ProblemsPageOptions) => {
 };
 
 const SyncPanel = (options: ProblemsPageOptions) => {
-  const { filters, latestSync, syncRunning, adminTokenEnabled } = options;
+  const { filters, latestSync, syncRunning } = options;
   const status = syncRunning
     ? "Sync running"
     : latestSync
@@ -384,11 +380,6 @@ const SyncPanel = (options: ProblemsPageOptions) => {
       </div>
       <form method="post" action="/admin/sync">
         <input type="hidden" name="returnTo" value={problemListUrl(filters, filters.page)} />
-        {adminTokenEnabled ? (
-          <input type="password" name="adminToken" placeholder="admin token" autocomplete="current-password" />
-        ) : (
-          ""
-        )}
         <button type="submit" disabled={syncRunning}>
           Refresh
         </button>
@@ -453,7 +444,7 @@ const LoadMore = ({ next }: { next: string }) => {
 };
 
 const ProblemRows = (props: ProblemsPageOptions & { pager: PagerData }) => {
-  const { result, filters, adminTokenEnabled, pager } = props;
+  const { result, filters, pager } = props;
 
   if (!result.rows.length) {
     return (
@@ -472,7 +463,6 @@ const ProblemRows = (props: ProblemsPageOptions & { pager: PagerData }) => {
           row={row}
           showTags={filters.showTags}
           returnTo={pager.returnTo}
-          adminTokenEnabled={adminTokenEnabled}
         />
       ))}
     </>
@@ -542,12 +532,11 @@ export const problemsAppendFragment = (options: ProblemsPageOptions): string => 
   const { result, filters } = options;
   const pager = pagerData(filters, result.total);
   const rows = result.rows.map((row) => (
-    <ProblemRow
-      row={row}
-      showTags={filters.showTags}
-      returnTo={pager.returnTo}
-      adminTokenEnabled={options.adminTokenEnabled}
-    />
+      <ProblemRow
+        row={row}
+        showTags={filters.showTags}
+        returnTo={pager.returnTo}
+      />
   ));
 
   return render(
@@ -572,6 +561,7 @@ export const problemsAppendFragment = (options: ProblemsPageOptions): string => 
 export const problemsPage = (options: ProblemsPageOptions): string => {
   return layout({
     title: "CFList Problems",
+    user: options.user,
     body: (
       <>
         <section class="hero">

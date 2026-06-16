@@ -1,13 +1,16 @@
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import type { Context } from "hono";
+import { createAuth, type AuthSession, type AuthUser } from "./auth.js";
 import type { Db } from "./db/connection.js";
 import {
+  getDefaultFilterQuery,
   getFilterOptions,
-  getLatestSyncRun,
+  getLatestUserSyncRun,
   getProblem,
   listProblems,
   normalizeFilters,
+  setDefaultFilterQuery,
   setSolvedOverride,
 } from "./db/queries.js";
 import {
@@ -19,33 +22,27 @@ import {
   problemsPage,
 } from "./views/problems.js";
 import { layout } from "./views/layout.js";
-import { syncCodeforces, syncState } from "./cf/sync.js";
+import { signInPage, signUpPage } from "./views/auth.js";
+import { syncState, syncUserStatus } from "./cf/sync.js";
 
 export type AppConfig = {
-  handle: string;
-  adminToken: string;
   publicRoot: string;
+  authBaseURL: string;
+  authSecret: string;
+  authTrustedOrigins: string[];
 };
 
-type FormValue = string | File | string[];
+type AppVariables = {
+  user: AuthUser | null;
+  session: AuthSession | null;
+};
 
-const defaultFiltersCookie = "cflist_default_filters";
+type AppContext = Context<{ Variables: AppVariables }>;
+type FormValue = string | File | string[];
 
 const firstString = (value: FormValue | undefined): string => {
   if (Array.isArray(value)) return typeof value[0] === "string" ? value[0] : "";
   return typeof value === "string" ? value : "";
-};
-
-const hasAdminAccess = (
-  c: Context,
-  adminToken: string,
-  form?: Record<string, FormValue>,
-): boolean => {
-  if (!adminToken) return true;
-  const headerToken = c.req.header("x-admin-token");
-  const queryToken = c.req.query("adminToken");
-  const formToken = form ? firstString(form.adminToken) : "";
-  return headerToken === adminToken || queryToken === adminToken || formToken === adminToken;
 };
 
 const parseContestId = (value: string): number | undefined => {
@@ -53,14 +50,8 @@ const parseContestId = (value: string): number | undefined => {
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 
-const runSyncInBackground = (db: Db, handle: string): void => {
-  void syncCodeforces(db, handle).catch((error) => {
-    console.error("Codeforces sync failed:", error);
-  });
-};
-
-const safeReturnTo = (value: string): string | undefined => {
-  if (!value.startsWith("/")) return undefined;
+const safeReturnTo = (value: string | undefined): string | undefined => {
+  if (!value?.startsWith("/")) return undefined;
   if (value.startsWith("//")) return undefined;
   return value;
 };
@@ -76,65 +67,88 @@ const formToSearchParams = (form: Record<string, FormValue>): URLSearchParams =>
   return params;
 };
 
-const parseCookies = (cookieHeader: string | undefined): Map<string, string> => {
-  const cookies = new Map<string, string>();
-  for (const part of cookieHeader?.split(";") ?? []) {
-    const [name, ...rawValue] = part.trim().split("=");
-    if (!name) continue;
-    cookies.set(name, rawValue.join("="));
+const formToBody = (form: Record<string, FormValue>, keys: string[]): URLSearchParams => {
+  const params = new URLSearchParams();
+  for (const key of keys) {
+    const rawValue = firstString(form[key]);
+    const value = key === "password" ? rawValue : rawValue.trim();
+    if (value) params.set(key, value);
   }
-  return cookies;
+  return params;
 };
 
-const defaultFilterParams = (c: Context, requestUrl: string): URLSearchParams | undefined => {
+const defaultFilterParams = (db: Db, userId: string, requestUrl: string): URLSearchParams | undefined => {
   const url = new URL(requestUrl);
   if (url.search) return undefined;
 
-  const cookieValue = parseCookies(c.req.header("cookie")).get(defaultFiltersCookie);
-  if (!cookieValue) return undefined;
-
-  try {
-    return new URLSearchParams(decodeURIComponent(cookieValue));
-  } catch {
-    return undefined;
-  }
+  const query = getDefaultFilterQuery(db, userId);
+  return query ? new URLSearchParams(query) : undefined;
 };
 
-const defaultFiltersCookieHeader = (query: string): string => {
-  if (!query) {
-    return `${defaultFiltersCookie}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly`;
-  }
-  return `${defaultFiltersCookie}=${encodeURIComponent(query)}; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly`;
-};
-
-const notFoundPage = (): string => {
+const notFoundPage = (user: AuthUser | null): string => {
   return layout({
     title: "Not Found",
+    user: user ?? undefined,
     body: `<section class="hero"><h1>Not found</h1><p>The requested page does not exist.</p><a class="button" href="/problems">Back to problems</a></section>`,
   });
 };
 
-const problemListOptions = (db: Db, appConfig: AppConfig, requestUrl: string, params?: URLSearchParams) => {
+const requireUser = (c: AppContext): AuthUser | Response => {
+  const user = c.get("user");
+  if (user) return user;
+
+  if (isHtmx(c)) {
+    c.header("HX-Redirect", `/sign-in?returnTo=${encodeURIComponent(new URL(c.req.url).pathname)}`);
+    return c.text("Unauthorized", 401);
+  }
+
+  return c.redirect(`/sign-in?returnTo=${encodeURIComponent(new URL(c.req.url).pathname)}`);
+};
+
+const problemListOptions = (db: Db, user: AuthUser, requestUrl: string, params?: URLSearchParams) => {
   params ??= new URL(requestUrl).searchParams;
-  const filters = normalizeFilters(params, appConfig.handle);
+  const filters = normalizeFilters(params, user.id, user.cfHandle);
   const result = listProblems(db, filters);
   const options = getFilterOptions(db);
-  const latestSync = getLatestSyncRun(db);
+  const latestSync = getLatestUserSyncRun(db, user.id);
 
   return {
     filters,
     result,
     options,
     latestSync,
-    syncRunning: syncState.running,
-    adminTokenEnabled: Boolean(appConfig.adminToken),
+    syncRunning: syncState.userRunning.has(user.id),
+    user,
   };
 };
 
 const isHtmx = (c: Context): boolean => c.req.header("hx-request") === "true";
 
-export const createApp = (db: Db, appConfig: AppConfig): Hono => {
-  const app = new Hono();
+const setCookiesFrom = (headers: Headers, source: Headers): void => {
+  const getSetCookie = (source as Headers & { getSetCookie?: () => string[] }).getSetCookie;
+  const cookies = getSetCookie ? getSetCookie.call(source) : [source.get("set-cookie")].filter(Boolean);
+  for (const cookie of cookies) headers.append("set-cookie", cookie as string);
+};
+
+const redirectWithAuthCookies = (authResponse: Response, location: string): Response => {
+  const headers = new Headers({ location });
+  setCookiesFrom(headers, authResponse.headers);
+  return new Response(null, { status: 303, headers });
+};
+
+const runSyncInBackground = (db: Db, user: AuthUser): void => {
+  void syncUserStatus(db, user.id, user.cfHandle).catch((error) => {
+    console.error("Codeforces sync failed:", error);
+  });
+};
+
+export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVariables }> => {
+  const auth = createAuth(db, {
+    baseURL: appConfig.authBaseURL,
+    secret: appConfig.authSecret,
+    trustedOrigins: [...new Set([appConfig.authBaseURL, ...appConfig.authTrustedOrigins])],
+  });
+  const app = new Hono<{ Variables: AppVariables }>();
 
   app.use(
     "/public/htmx.min.js",
@@ -145,18 +159,106 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono => {
   );
   app.use("/public/*", serveStatic({ root: appConfig.publicRoot }));
 
-  app.get("/", (c) => c.redirect("/problems"));
+  app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw));
+
+  app.use("*", async (c, next) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    c.set("user", (session?.user as AuthUser | undefined) ?? null);
+    c.set("session", (session?.session as AuthSession | undefined) ?? null);
+    await next();
+  });
+
+  const proxyAuthForm = async (
+    c: AppContext,
+    endpoint: "sign-in/email" | "sign-up/email" | "sign-out",
+    body: URLSearchParams,
+  ): Promise<Response> => {
+    const url = new URL(`/api/auth/${endpoint}`, c.req.url);
+    const headers = new Headers({
+      "content-type": "application/x-www-form-urlencoded",
+      origin: url.origin,
+    });
+    const cookie = c.req.header("cookie");
+    if (cookie) headers.set("cookie", cookie);
+
+    return auth.handler(
+      new Request(url, {
+        method: "POST",
+        headers,
+        body,
+      }),
+    );
+  };
+
+  const authErrorRedirect = async (response: Response, fallback: string): Promise<Response> => {
+    const body = await response.json().catch(() => undefined) as { message?: string } | undefined;
+    const message = body?.message ?? "Authentication failed";
+    return new Response(null, {
+      status: 303,
+      headers: { location: `${fallback}?error=${encodeURIComponent(message)}` },
+    });
+  };
+
+  app.get("/", (c) => c.redirect(c.get("user") ? "/problems" : "/sign-in"));
 
   app.get("/healthz", (c) => {
-    return c.json({ ok: true, syncRunning: syncState.running });
+    return c.json({
+      ok: true,
+      catalogSyncRunning: syncState.catalogRunning,
+      userSyncRunning: syncState.userRunning.size,
+    });
+  });
+
+  app.get("/sign-in", (c) => {
+    if (c.get("user")) return c.redirect(safeReturnTo(c.req.query("returnTo")) ?? "/problems");
+    return c.html(signInPage({ error: c.req.query("error"), returnTo: c.req.query("returnTo") }));
+  });
+
+  app.post("/sign-in", async (c) => {
+    const form = await c.req.parseBody();
+    const returnTo = safeReturnTo(firstString(form.returnTo)) ?? "/problems";
+    const response = await proxyAuthForm(
+      c,
+      "sign-in/email",
+      formToBody(form, ["email", "password"]),
+    );
+    if (!response.ok) return authErrorRedirect(response, "/sign-in");
+    return redirectWithAuthCookies(response, returnTo);
+  });
+
+  app.get("/sign-up", (c) => {
+    if (c.get("user")) return c.redirect(safeReturnTo(c.req.query("returnTo")) ?? "/problems");
+    return c.html(signUpPage({ error: c.req.query("error"), returnTo: c.req.query("returnTo") }));
+  });
+
+  app.post("/sign-up", async (c) => {
+    const form = await c.req.parseBody();
+    const returnTo = safeReturnTo(firstString(form.returnTo)) ?? "/problems";
+    const response = await proxyAuthForm(
+      c,
+      "sign-up/email",
+      formToBody(form, ["name", "email", "password", "cfHandle"]),
+    );
+    if (!response.ok) return authErrorRedirect(response, "/sign-up");
+    return redirectWithAuthCookies(response, returnTo);
+  });
+
+  app.post("/sign-out", async (c) => {
+    const response = await proxyAuthForm(c, "sign-out", new URLSearchParams());
+    return redirectWithAuthCookies(response, "/sign-in");
   });
 
   app.get("/problems", (c) => {
-    return c.html(problemsPage(problemListOptions(db, appConfig, c.req.url, defaultFilterParams(c, c.req.url))));
+    const user = requireUser(c);
+    if (user instanceof Response) return user;
+    return c.html(problemsPage(problemListOptions(db, user, c.req.url, defaultFilterParams(db, user.id, c.req.url))));
   });
 
   app.get("/problems/fragment", (c) => {
-    const options = problemListOptions(db, appConfig, c.req.url);
+    const user = requireUser(c);
+    if (user instanceof Response) return user;
+
+    const options = problemListOptions(db, user, c.req.url);
     if (c.req.query("append") === "1") {
       return c.html(problemsAppendFragment(options));
     }
@@ -169,11 +271,10 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono => {
   });
 
   app.post("/problems/:contestId/:index/override", async (c) => {
-    const form = await c.req.parseBody();
-    if (!hasAdminAccess(c, appConfig.adminToken, form)) {
-      return c.text("Forbidden", 403);
-    }
+    const user = requireUser(c);
+    if (user instanceof Response) return user;
 
+    const form = await c.req.parseBody();
     const contestId = parseContestId(c.req.param("contestId"));
     const index = c.req.param("index");
     if (contestId === undefined) return c.text("Invalid contest id", 400);
@@ -182,16 +283,16 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono => {
     const solvedOverride = rawOverride === "1" ? 1 : null;
     const note = firstString(form.note).trim() || null;
     const returnTo = safeReturnTo(firstString(form.returnTo));
-    const problem = getProblem(db, appConfig.handle, contestId, index);
+    const problem = getProblem(db, user.id, contestId, index);
 
     if (!problem) return c.text("Problem not found", 404);
 
-    setSolvedOverride(db, appConfig.handle, contestId, index, solvedOverride, note);
-    const updatedProblem = getProblem(db, appConfig.handle, contestId, index);
+    setSolvedOverride(db, user.id, contestId, index, solvedOverride, note);
+    const updatedProblem = getProblem(db, user.id, contestId, index);
 
     if (isHtmx(c) && updatedProblem) {
       const listUrl = new URL(returnTo ?? "/problems", c.req.url).toString();
-      const options = problemListOptions(db, appConfig, listUrl);
+      const options = problemListOptions(db, user, listUrl);
       return c.html(`${problemsListFragment(options)}${problemSummaryOutOfBand(options)}`);
     }
 
@@ -209,26 +310,28 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono => {
   });
 
   app.post("/admin/sync", async (c) => {
-    const form = await c.req.parseBody();
-    if (!hasAdminAccess(c, appConfig.adminToken, form)) {
-      return c.text("Forbidden", 403);
-    }
+    const user = requireUser(c);
+    if (user instanceof Response) return user;
 
+    const form = await c.req.parseBody();
     const returnTo = safeReturnTo(firstString(form.returnTo));
-    runSyncInBackground(db, appConfig.handle);
+    runSyncInBackground(db, user);
     return c.redirect(returnTo ?? "/problems");
   });
 
   app.post("/preferences/default-filters", async (c) => {
+    const user = requireUser(c);
+    if (user instanceof Response) return user;
+
     const form = await c.req.parseBody();
-    const filters = normalizeFilters(formToSearchParams(form), appConfig.handle);
+    const filters = normalizeFilters(formToSearchParams(form), user.id, user.cfHandle);
     const query = problemListQuery(filters);
 
-    c.header("Set-Cookie", defaultFiltersCookieHeader(query));
+    setDefaultFilterQuery(db, user.id, query);
     return c.text("Default saved");
   });
 
-  app.notFound((c) => c.html(notFoundPage(), 404));
+  app.notFound((c) => c.html(notFoundPage(c.get("user")), 404));
 
   return app;
 };

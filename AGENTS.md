@@ -9,8 +9,9 @@ CFList is a small personal Codeforces problem index.
 - Runtime: Node.js 24+ with TypeScript.
 - Web app: Hono, server-rendered HTML.
 - Database: SQLite through Node's built-in `node:sqlite`.
+- Auth: Better Auth with local email/password, stored in SQLite.
 - Frontend: Hono TSX server views, plain CSS, HTMX for HTML fragment swaps, and small vanilla JS in `src/public/filters.js`.
-- Persistent local state: `data/cflist.sqlite` (gitignored).
+- Persistent local state: `data/cflist.sqlite` (gitignored). Pre-auth databases can be deleted instead of migrated.
 
 ## Commands
 
@@ -31,6 +32,7 @@ PORT=3001 npm start
 
 - `agents/app-notes.md`: compact implementation notes for future agents.
 - `src/app.ts`: routes and write-route guards.
+- `src/auth.ts`: Better Auth configuration.
 - `src/db/queries.ts`: filter parsing, SQL queries, solved override writes.
 - `src/cf/sync.ts`: Codeforces sync.
 - `src/views/problems.tsx`: problem list rendering.
@@ -46,5 +48,6 @@ PORT=3001 npm start
 - Keep the app small: avoid new frameworks unless there is a clear reason.
 - Preserve URL-backed filters.
 - Treat Codeforces solved status as authoritative; local manual solves are additive.
+- Key app-owned user data by auth user id, not Codeforces handle. The handle is profile data used for Codeforces API calls.
 - Keep JavaScript enhancements progressive; forms should still work without JS.
 - Run `npm test` after behavior changes.

@@ -4,14 +4,16 @@ import { classifyContest } from "./classify.js";
 import type { CfContest, CfProblem, CfSubmission } from "./types.js";
 
 export type SyncState = {
-  running: boolean;
-  lastStartedAt?: string;
-  lastFinishedAt?: string;
-  lastError?: string;
+  catalogRunning: boolean;
+  userRunning: Set<string>;
+  lastCatalogStartedAt?: string;
+  lastCatalogFinishedAt?: string;
+  lastCatalogError?: string;
 };
 
 export const syncState: SyncState = {
-  running: false,
+  catalogRunning: false,
+  userRunning: new Set(),
 };
 
 type AcceptedProblem = {
@@ -72,22 +74,21 @@ export const acceptedProblemsFromSubmissions = (
   return accepted;
 };
 
-export const syncCodeforces = async (
+export const syncCatalog = async (
   db: Db,
-  handle: string,
   client = new CodeforcesClient(),
 ): Promise<void> => {
-  if (syncState.running) return;
+  if (syncState.catalogRunning) return;
 
-  syncState.running = true;
-  syncState.lastStartedAt = now();
-  syncState.lastError = undefined;
+  syncState.catalogRunning = true;
+  syncState.lastCatalogStartedAt = now();
+  syncState.lastCatalogError = undefined;
 
   const syncRun = db
     .prepare(
-      "INSERT INTO sync_runs (started_at, status, source) VALUES (@startedAt, 'running', 'codeforces')",
+      "INSERT INTO sync_runs (started_at, status, source) VALUES (@startedAt, 'running', 'codeforces:catalog')",
     )
-    .run({ startedAt: syncState.lastStartedAt });
+    .run({ startedAt: syncState.lastCatalogStartedAt });
   const syncRunId = Number(syncRun.lastInsertRowid);
 
   try {
@@ -244,14 +245,69 @@ export const syncCodeforces = async (
     });
     writeProblems();
 
-    const submissions = await client.userStatus(handle);
+    syncState.lastCatalogFinishedAt = now();
+    db.prepare(
+      `
+      UPDATE sync_runs
+      SET status = 'success', finished_at = @finishedAt, message = @message
+      WHERE id = @id
+    `,
+    ).run({
+      id: syncRunId,
+      finishedAt: syncState.lastCatalogFinishedAt,
+      message: `Synced ${contests.length} contests and ${problemset.problems.length} API problems.`,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    syncState.lastCatalogFinishedAt = now();
+    syncState.lastCatalogError = message;
+    db.prepare(
+      `
+      UPDATE sync_runs
+      SET status = 'failed', finished_at = @finishedAt, message = @message
+      WHERE id = @id
+    `,
+    ).run({ id: syncRunId, finishedAt: syncState.lastCatalogFinishedAt, message });
+    throw error;
+  } finally {
+    syncState.catalogRunning = false;
+  }
+};
+
+export const syncUserStatus = async (
+  db: Db,
+  userId: string,
+  cfHandle: string,
+  client = new CodeforcesClient(),
+): Promise<void> => {
+  if (syncState.userRunning.has(userId)) return;
+
+  syncState.userRunning.add(userId);
+  const startedAt = now();
+  const syncRun = db
+    .prepare(
+      `
+      INSERT INTO sync_runs (started_at, status, source, user_id, cf_handle)
+      VALUES (@startedAt, 'running', 'codeforces:user', @userId, @cfHandle)
+    `,
+    )
+    .run({ startedAt, userId, cfHandle });
+  const syncRunId = Number(syncRun.lastInsertRowid);
+
+  try {
+    await syncCatalog(db, client);
+
+    const contests = db.prepare("SELECT id, name FROM contests").all() as unknown as CfContest[];
+    const contestsById = new Map(contests.map((contest) => [contest.id, contest]));
+    const submissions = await client.userStatus(cfHandle);
     const accepted = acceptedProblemsFromSubmissions(submissions, contestsById);
     const checkedAt = now();
 
-    const clearStatus = db.prepare("DELETE FROM user_problem_status WHERE handle = @handle");
+    const clearStatus = db.prepare("DELETE FROM user_problem_status WHERE user_id = @userId");
     const insertStatus = db.prepare(`
       INSERT INTO user_problem_status (
-        handle,
+        user_id,
+        cf_handle,
         contest_id,
         problem_index,
         solved,
@@ -260,7 +316,8 @@ export const syncCodeforces = async (
         accepted_count,
         last_checked_at
       ) VALUES (
-        @handle,
+        @userId,
+        @cfHandle,
         @contestId,
         @problemIndex,
         1,
@@ -271,10 +328,11 @@ export const syncCodeforces = async (
       )
     `);
     const writeStatus = () => transaction(db, () => {
-      clearStatus.run({ handle });
+      clearStatus.run({ userId });
       for (const item of accepted.values()) {
         insertStatus.run({
-          handle,
+          userId,
+          cfHandle,
           contestId: item.contestId,
           problemIndex: item.problemIndex,
           firstSubmissionId: item.firstSubmissionId,
@@ -286,7 +344,7 @@ export const syncCodeforces = async (
     });
     writeStatus();
 
-    syncState.lastFinishedAt = now();
+    const finishedAt = now();
     db.prepare(
       `
       UPDATE sync_runs
@@ -295,22 +353,20 @@ export const syncCodeforces = async (
     `,
     ).run({
       id: syncRunId,
-      finishedAt: syncState.lastFinishedAt,
-      message: `Synced ${contests.length} contests, ${problemset.problems.length} API problems, ${accepted.size} solved problems for ${handle}.`,
+      finishedAt,
+      message: `Synced ${accepted.size} solved problems for ${cfHandle}.`,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    syncState.lastFinishedAt = now();
-    syncState.lastError = message;
     db.prepare(
       `
       UPDATE sync_runs
       SET status = 'failed', finished_at = @finishedAt, message = @message
       WHERE id = @id
     `,
-    ).run({ id: syncRunId, finishedAt: syncState.lastFinishedAt, message });
+    ).run({ id: syncRunId, finishedAt: now(), message });
     throw error;
   } finally {
-    syncState.running = false;
+    syncState.userRunning.delete(userId);
   }
 };

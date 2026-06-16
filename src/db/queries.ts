@@ -17,7 +17,8 @@ export type ProblemFilters = {
   sortDirection: "asc" | "desc";
   page: number;
   pageSize: number;
-  handle: string;
+  userId: string;
+  cfHandle: string;
 };
 
 export type ProblemRow = {
@@ -69,7 +70,7 @@ export const defaultSortDirection = (sort: ProblemFilters["sort"]): ProblemFilte
   return sort === "rating" || sort === "name" ? "asc" : "desc";
 };
 
-export const normalizeFilters = (input: URLSearchParams, handle: string): ProblemFilters => {
+export const normalizeFilters = (input: URLSearchParams, userId: string, cfHandle: string): ProblemFilters => {
   const parseIntParam = (key: string): number | undefined => {
     const value = input.get(key);
     if (!value) return undefined;
@@ -110,7 +111,8 @@ export const normalizeFilters = (input: URLSearchParams, handle: string): Proble
         : defaultSortDirection(normalizedSort),
     page,
     pageSize,
-    handle,
+    userId,
+    cfHandle,
   };
 };
 
@@ -118,11 +120,11 @@ const baseFrom = `
   FROM problems p
   LEFT JOIN contests c ON c.id = p.contest_id
   LEFT JOIN user_problem_status ups
-    ON ups.handle = @handle
+    ON ups.user_id = @userId
     AND ups.contest_id = p.contest_id
     AND ups.problem_index = p.problem_index
   LEFT JOIN user_problem_overrides upo
-    ON upo.handle = @handle
+    ON upo.user_id = @userId
     AND upo.contest_id = p.contest_id
     AND upo.problem_index = p.problem_index
 `;
@@ -131,7 +133,7 @@ const solvedExpr = "CASE WHEN COALESCE(ups.solved, 0) = 1 OR COALESCE(upo.solved
 
 const buildWhere = (filters: ProblemFilters): { where: string; params: SqlParams } => {
   const clauses: string[] = [];
-  const params: SqlParams = { handle: filters.handle };
+  const params: SqlParams = { userId: filters.userId };
 
   if (filters.q) {
     clauses.push("(p.name LIKE @q OR CAST(p.contest_id AS TEXT) || p.problem_index LIKE @q)");
@@ -257,7 +259,7 @@ export const listProblems = (db: Db, filters: ProblemFilters): ListResult => {
 
 export const getProblem = (
   db: Db,
-  handle: string,
+  userId: string,
   contestId: number,
   problemIndex: string,
 ): ProblemDetail | undefined => {
@@ -290,7 +292,7 @@ export const getProblem = (
       WHERE p.contest_id = @contestId AND p.problem_index = @problemIndex
     `,
     )
-    .get({ handle, contestId, problemIndex }) as ProblemDetail | undefined;
+    .get({ userId, contestId, problemIndex }) as ProblemDetail | undefined;
 };
 
 export const getFilterOptions = (db: Db): FilterOptions => {
@@ -329,6 +331,23 @@ export const getLatestSyncRun = (db: Db): { started_at: string; finished_at: str
     .get() as { started_at: string; finished_at: string | null; status: string; message: string | null } | undefined;
 };
 
+export const getLatestUserSyncRun = (
+  db: Db,
+  userId: string,
+): { started_at: string; finished_at: string | null; status: string; message: string | null } | undefined => {
+  return db
+    .prepare(
+      `
+      SELECT started_at, finished_at, status, message
+      FROM sync_runs
+      WHERE source = 'codeforces:user' AND user_id = @userId
+      ORDER BY id DESC
+      LIMIT 1
+    `,
+    )
+    .get({ userId }) as { started_at: string; finished_at: string | null; status: string; message: string | null } | undefined;
+};
+
 export const problemCount = (db: Db): number => {
   const row = db.prepare("SELECT COUNT(*) AS count FROM problems").get() as { count: number };
   return row.count;
@@ -336,7 +355,7 @@ export const problemCount = (db: Db): number => {
 
 export const latestSuccessfulSyncAgeMs = (db: Db): number | undefined => {
   const row = db
-    .prepare("SELECT finished_at FROM sync_runs WHERE status = 'success' ORDER BY id DESC LIMIT 1")
+    .prepare("SELECT finished_at FROM sync_runs WHERE source = 'codeforces:catalog' AND status = 'success' ORDER BY id DESC LIMIT 1")
     .get() as { finished_at: string } | undefined;
   if (!row) return undefined;
   const finishedAt = Date.parse(row.finished_at);
@@ -345,7 +364,7 @@ export const latestSuccessfulSyncAgeMs = (db: Db): number | undefined => {
 
 export const setSolvedOverride = (
   db: Db,
-  handle: string,
+  userId: string,
   contestId: number,
   problemIndex: string,
   solvedOverride: 0 | 1 | null,
@@ -355,40 +374,64 @@ export const setSolvedOverride = (
     db.prepare(
       `
       DELETE FROM user_problem_overrides
-      WHERE handle = @handle AND contest_id = @contestId AND problem_index = @problemIndex
+      WHERE user_id = @userId AND contest_id = @contestId AND problem_index = @problemIndex
     `,
-    ).run({ handle, contestId, problemIndex });
+    ).run({ userId, contestId, problemIndex });
     return;
   }
 
   db.prepare(
     `
     INSERT INTO user_problem_overrides (
-      handle,
+      user_id,
       contest_id,
       problem_index,
       solved_override,
       note,
       updated_at
     ) VALUES (
-      @handle,
+      @userId,
       @contestId,
       @problemIndex,
       @solvedOverride,
       @note,
       @updatedAt
     )
-    ON CONFLICT(handle, contest_id, problem_index) DO UPDATE SET
+    ON CONFLICT(user_id, contest_id, problem_index) DO UPDATE SET
       solved_override = excluded.solved_override,
       note = excluded.note,
       updated_at = excluded.updated_at
   `,
   ).run({
-    handle,
+    userId,
     contestId,
     problemIndex,
     solvedOverride,
     note,
     updatedAt: new Date().toISOString(),
   });
+};
+
+export const getDefaultFilterQuery = (db: Db, userId: string): string | undefined => {
+  const row = db
+    .prepare("SELECT query FROM user_default_filters WHERE user_id = @userId")
+    .get({ userId }) as { query: string } | undefined;
+  return row?.query;
+};
+
+export const setDefaultFilterQuery = (db: Db, userId: string, query: string): void => {
+  if (!query) {
+    db.prepare("DELETE FROM user_default_filters WHERE user_id = @userId").run({ userId });
+    return;
+  }
+
+  db.prepare(
+    `
+    INSERT INTO user_default_filters (user_id, query, updated_at)
+    VALUES (@userId, @query, @updatedAt)
+    ON CONFLICT(user_id) DO UPDATE SET
+      query = excluded.query,
+      updated_at = excluded.updated_at
+  `,
+  ).run({ userId, query, updatedAt: new Date().toISOString() });
 };

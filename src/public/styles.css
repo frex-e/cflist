@@ -131,6 +131,30 @@ button:disabled,
   color: var(--text);
 }
 
+.sign-out-form {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.sign-out-form span {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.sign-out-form button {
+  min-height: 28px;
+  padding: 0 9px;
+  border-color: var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.sign-out-form button:hover {
+  border-color: var(--text);
+  background: var(--hover);
+}
+
 .page {
   width: min(1480px, 100%);
   margin: 0 auto;
@@ -166,6 +190,37 @@ p {
   margin: 5px 0 0;
   color: var(--muted);
   font-size: 13px;
+}
+
+.auth-panel {
+  width: min(420px, 100%);
+  margin: 56px auto 0;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+}
+
+.auth-panel h1 {
+  margin-bottom: 14px;
+}
+
+.auth-panel p {
+  margin-top: 14px;
+}
+
+.auth-form {
+  display: grid;
+  gap: 12px;
+}
+
+.auth-form button {
+  margin-top: 4px;
+}
+
+.form-error {
+  margin: 0 0 12px;
+  color: var(--danger);
 }
 
 .sync-panel {
@@ -773,9 +828,19 @@ button.status-button {
   }
 
   .topbar,
+  .topnav,
   .hero,
   .sync-panel,
   .table-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .topnav {
+    gap: 10px;
+  }
+
+  .sign-out-form {
     align-items: stretch;
     flex-direction: column;
   }
