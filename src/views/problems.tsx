@@ -37,7 +37,7 @@ export const problemListUrl = (filters: ProblemFilters, page: number): string =>
   if (filters.minRating !== undefined) params.set("minRating", String(filters.minRating));
   if (filters.maxRating !== undefined) params.set("maxRating", String(filters.maxRating));
   for (const tag of filters.tags) params.append("tags", tag);
-  if (filters.tagMode !== "all") params.set("tagMode", filters.tagMode);
+  if (filters.tagMode !== "any") params.set("tagMode", filters.tagMode);
   if (filters.contestFamily) params.set("contestFamily", filters.contestFamily);
   for (const division of filters.divisions) params.append("division", division);
   if (filters.solved !== "all") params.set("solved", filters.solved);
@@ -48,6 +48,11 @@ export const problemListUrl = (filters: ProblemFilters, page: number): string =>
   if (page !== 1) params.set("page", String(page));
   const query = params.toString();
   return query ? `/problems?${query}` : "/problems";
+};
+
+export const problemListQuery = (filters: ProblemFilters): string => {
+  const url = problemListUrl(filters, 1);
+  return url.includes("?") ? url.slice(url.indexOf("?") + 1) : "";
 };
 
 const fragmentUrl = (url: string, extra?: Record<string, string>): string => {
@@ -152,6 +157,7 @@ const ProblemRow = (props: {
   const tags = tagsForRow(row);
   const problemId = `${row.contest_id}${row.problem_index}`;
   const title = ratingTitle(row.rating);
+  const problemHref = `https://codeforces.com/contest/${row.contest_id}/problem/${encodeURIComponent(row.problem_index)}`;
 
   return (
     <tr
@@ -164,14 +170,14 @@ const ProblemRow = (props: {
         <StatusControl row={row} returnTo={returnTo} adminTokenEnabled={adminTokenEnabled} />
       </td>
       <td class="mono">
-        <a href={row.url} rel="noreferrer" target="_blank">
+        <a href={problemHref} rel="noreferrer" target="_blank">
           {problemId}
         </a>
       </td>
       <td>
         <div class="problem-title-cell">
           <span class={`rank-dot ${title.className}`} title={title.name}></span>
-          <a class="problem-name" href={row.url} rel="noreferrer" target="_blank">
+          <a class="problem-name" href={problemHref} rel="noreferrer" target="_blank">
             {row.name}
           </a>
         </div>
@@ -225,16 +231,13 @@ const FilterForm = ({ filters, options }: ProblemsPageOptions) => {
         <a
           class="button secondary"
           href="/problems"
-          data-filter-reset
-          hx-get="/problems/fragment"
-          hx-params="none"
-          hx-target="#problem-list"
-          hx-swap="outerHTML"
-          hx-push-url="/problems"
-          hx-indicator="#problem-list"
         >
           Reset
         </a>
+        <button class="button secondary" type="button" data-filter-save-default>
+          Set default
+        </button>
+        <span class="filter-action-status" data-filter-default-status aria-live="polite"></span>
       </div>
       <label>
         Search
@@ -334,8 +337,8 @@ const FilterForm = ({ filters, options }: ProblemsPageOptions) => {
       <label>
         Tag mode
         <select name="tagMode">
-          <Option value="all" label="All tags" selected={filters.tagMode === "all"} />
           <Option value="any" label="Any tag" selected={filters.tagMode === "any"} />
+          <Option value="all" label="All tags" selected={filters.tagMode === "all"} />
         </select>
       </label>
       <label class="toggle-row">
@@ -366,7 +369,7 @@ const FilterForm = ({ filters, options }: ProblemsPageOptions) => {
 };
 
 const SyncPanel = (options: ProblemsPageOptions) => {
-  const { latestSync, syncRunning, adminTokenEnabled } = options;
+  const { filters, latestSync, syncRunning, adminTokenEnabled } = options;
   const status = syncRunning
     ? "Sync running"
     : latestSync
@@ -374,12 +377,13 @@ const SyncPanel = (options: ProblemsPageOptions) => {
       : "No sync yet";
 
   return (
-    <section class="sync-panel">
+    <section class="sync-panel" aria-label="Codeforces refresh">
       <div>
-        <strong>{status}</strong>
+        <span>{status}</span>
         {latestSync?.message ? <p>{latestSync.message}</p> : ""}
       </div>
       <form method="post" action="/admin/sync">
+        <input type="hidden" name="returnTo" value={problemListUrl(filters, filters.page)} />
         {adminTokenEnabled ? (
           <input type="password" name="adminToken" placeholder="admin token" autocomplete="current-password" />
         ) : (
@@ -577,8 +581,8 @@ export const problemsPage = (options: ProblemsPageOptions): string => {
               {problemSummaryText(options)}
             </p>
           </div>
+          <SyncPanel {...options} />
         </section>
-        <SyncPanel {...options} />
         <div class="workspace">
           <FilterForm {...options} />
           <ProblemsListFragment {...options} />

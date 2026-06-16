@@ -11,6 +11,7 @@ import {
   setSolvedOverride,
 } from "./db/queries.js";
 import {
+  problemListQuery,
   problemListUrl,
   problemSummaryOutOfBand,
   problemsAppendFragment,
@@ -27,6 +28,8 @@ export type AppConfig = {
 };
 
 type FormValue = string | File | string[];
+
+const defaultFiltersCookie = "cflist_default_filters";
 
 const firstString = (value: FormValue | undefined): string => {
   if (Array.isArray(value)) return typeof value[0] === "string" ? value[0] : "";
@@ -62,6 +65,48 @@ const safeReturnTo = (value: string): string | undefined => {
   return value;
 };
 
+const formToSearchParams = (form: Record<string, FormValue>): URLSearchParams => {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(form)) {
+    const values = Array.isArray(value) ? value : [value];
+    for (const item of values) {
+      if (typeof item === "string") params.append(key, item);
+    }
+  }
+  return params;
+};
+
+const parseCookies = (cookieHeader: string | undefined): Map<string, string> => {
+  const cookies = new Map<string, string>();
+  for (const part of cookieHeader?.split(";") ?? []) {
+    const [name, ...rawValue] = part.trim().split("=");
+    if (!name) continue;
+    cookies.set(name, rawValue.join("="));
+  }
+  return cookies;
+};
+
+const defaultFilterParams = (c: Context, requestUrl: string): URLSearchParams | undefined => {
+  const url = new URL(requestUrl);
+  if (url.search) return undefined;
+
+  const cookieValue = parseCookies(c.req.header("cookie")).get(defaultFiltersCookie);
+  if (!cookieValue) return undefined;
+
+  try {
+    return new URLSearchParams(decodeURIComponent(cookieValue));
+  } catch {
+    return undefined;
+  }
+};
+
+const defaultFiltersCookieHeader = (query: string): string => {
+  if (!query) {
+    return `${defaultFiltersCookie}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly`;
+  }
+  return `${defaultFiltersCookie}=${encodeURIComponent(query)}; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly`;
+};
+
 const notFoundPage = (): string => {
   return layout({
     title: "Not Found",
@@ -69,8 +114,8 @@ const notFoundPage = (): string => {
   });
 };
 
-const problemListOptions = (db: Db, appConfig: AppConfig, requestUrl: string) => {
-  const params = new URL(requestUrl).searchParams;
+const problemListOptions = (db: Db, appConfig: AppConfig, requestUrl: string, params?: URLSearchParams) => {
+  params ??= new URL(requestUrl).searchParams;
   const filters = normalizeFilters(params, appConfig.handle);
   const result = listProblems(db, filters);
   const options = getFilterOptions(db);
@@ -106,7 +151,9 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono => {
     return c.json({ ok: true, syncRunning: syncState.running });
   });
 
-  app.get("/problems", (c) => c.html(problemsPage(problemListOptions(db, appConfig, c.req.url))));
+  app.get("/problems", (c) => {
+    return c.html(problemsPage(problemListOptions(db, appConfig, c.req.url, defaultFilterParams(c, c.req.url))));
+  });
 
   app.get("/problems/fragment", (c) => {
     const options = problemListOptions(db, appConfig, c.req.url);
@@ -167,8 +214,18 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono => {
       return c.text("Forbidden", 403);
     }
 
+    const returnTo = safeReturnTo(firstString(form.returnTo));
     runSyncInBackground(db, appConfig.handle);
-    return c.redirect("/problems");
+    return c.redirect(returnTo ?? "/problems");
+  });
+
+  app.post("/preferences/default-filters", async (c) => {
+    const form = await c.req.parseBody();
+    const filters = normalizeFilters(formToSearchParams(form), appConfig.handle);
+    const query = problemListQuery(filters);
+
+    c.header("Set-Cookie", defaultFiltersCookieHeader(query));
+    return c.text("Default saved");
   });
 
   app.notFound((c) => c.html(notFoundPage(), 404));

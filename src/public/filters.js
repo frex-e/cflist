@@ -67,7 +67,7 @@
       if (select.name === "solved") select.value = "all";
       else if (select.name === "sort") select.value = "contest";
       else if (select.name === "sortDirection") select.value = "desc";
-      else if (select.name === "tagMode") select.value = "all";
+      else if (select.name === "tagMode") select.value = "any";
       else if (select.name === "pageSize") select.value = "50";
       else select.value = "";
     });
@@ -102,6 +102,20 @@
   document.querySelectorAll("[data-rating-filter]").forEach(setupRatingFilter);
   document.querySelectorAll('.direction-toggle input[name="sortDirection"]').forEach(setupDirectionToggle);
 
+  const canonicalFilterParams = (form) => {
+    const params = new URLSearchParams(new FormData(form));
+    params.delete("page");
+    if (params.get("tagMode") === "any") params.delete("tagMode");
+    if (params.get("solved") === "all") params.delete("solved");
+    if (params.get("sort") === "contest") params.delete("sort");
+    if (params.get("sortDirection") === "desc") params.delete("sortDirection");
+    if (params.get("pageSize") === "50") params.delete("pageSize");
+    for (const key of [...params.keys()]) {
+      if (params.getAll(key).every((value) => value === "")) params.delete(key);
+    }
+    return params;
+  };
+
   document.addEventListener(
     "click",
     (event) => {
@@ -110,6 +124,28 @@
       const reset = target.closest("[data-filter-reset]");
       const form = reset?.closest("form");
       if (form) resetFilterForm(form);
+
+      const saveDefault = target.closest("[data-filter-save-default]");
+      const defaultForm = saveDefault?.closest("form");
+      if (!defaultForm) return;
+
+      event.preventDefault();
+      const status = defaultForm.querySelector("[data-filter-default-status]");
+      const body = canonicalFilterParams(defaultForm);
+      if (status) status.textContent = "Saving...";
+
+      fetch("/preferences/default-filters", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body,
+      })
+        .then((response) => {
+          if (!response.ok) throw new Error("Could not save default filters");
+          if (status) status.textContent = "Default saved";
+        })
+        .catch(() => {
+          if (status) status.textContent = "Could not save";
+        });
     },
     true,
   );

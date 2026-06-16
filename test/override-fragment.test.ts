@@ -36,7 +36,7 @@ const seedProblem = (db: DatabaseSync): void => {
   ).run();
 };
 
-test("manual solved HTMX response swaps the list instead of a bare table row", async () => {
+const withSeededApp = async (fn: (app: ReturnType<typeof createApp>) => Promise<void>): Promise<void> => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
   migrate(db);
@@ -48,7 +48,14 @@ test("manual solved HTMX response swaps the list instead of a bare table row", a
       adminToken: "",
       publicRoot: "src/public",
     });
+    await fn(app);
+  } finally {
+    db.close();
+  }
+};
 
+test("manual solved HTMX response swaps the list instead of a bare table row", async () => {
+  await withSeededApp(async (app) => {
     const response = await app.request("/problems/1/A/override", {
       method: "POST",
       headers: {
@@ -67,7 +74,43 @@ test("manual solved HTMX response swaps the list instead of a bare table row", a
     assert.match(html.trim(), /^<section id="problem-list"/);
     assert.match(html, /id="problem-summary"[^>]*hx-swap-oob="true"/);
     assert.doesNotMatch(html, /^<p[\s>]/);
-  } finally {
-    db.close();
-  }
+  });
+});
+
+test("problem links point to the contest problem page", async () => {
+  await withSeededApp(async (app) => {
+    const response = await app.request("/problems");
+    const html = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.match(html, /href="https:\/\/codeforces\.com\/contest\/1\/problem\/A"/);
+    assert.doesNotMatch(html, /href="https:\/\/codeforces\.com\/problemset\/problem\/1\/A"/);
+  });
+});
+
+test("bare problems page uses saved default filters when no query params are present", async () => {
+  await withSeededApp(async (app) => {
+    const saveResponse = await app.request("/preferences/default-filters", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ solved: "unsolved" }).toString(),
+    });
+    const cookie = saveResponse.headers.get("set-cookie") ?? "";
+
+    const defaultResponse = await app.request("/problems", {
+      headers: { cookie },
+    });
+    const explicitResponse = await app.request("/problems?solved=all", {
+      headers: { cookie },
+    });
+
+    const defaultHtml = await defaultResponse.text();
+    const explicitHtml = await explicitResponse.text();
+
+    assert.equal(defaultResponse.status, 200);
+    assert.match(defaultHtml, /<option value="unsolved" selected="">Unsolved<\/option>/);
+    assert.match(explicitHtml, /<option value="all" selected="">All<\/option>/);
+  });
 });

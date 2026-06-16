@@ -83,7 +83,7 @@ export const normalizeFilters = (input: URLSearchParams, handle: string): Proble
   const tags = [...new Set(tagValues.map((tag) => tag.trim()).filter(Boolean))];
   const divisionValues = input.getAll("division").flatMap((value) => value.split(","));
   const divisions = [...new Set(divisionValues.map((division) => division.trim()).filter(Boolean))];
-  const tagMode = input.get("tagMode") === "any" ? "any" : "all";
+  const tagMode = input.get("tagMode") === "all" ? "all" : "any";
   const solved = input.get("solved");
   const sort = input.get("sort");
   const sortDirection = input.get("sortDirection");

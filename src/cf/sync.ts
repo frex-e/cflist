@@ -27,7 +27,7 @@ const now = (): string => new Date().toISOString();
 const problemKey = (contestId: number, problemIndex: string): string => `${contestId}:${problemIndex}`;
 
 const codeforcesProblemUrl = (contestId: number, problemIndex: string): string => {
-  return `https://codeforces.com/problemset/problem/${contestId}/${encodeURIComponent(problemIndex)}`;
+  return `https://codeforces.com/contest/${contestId}/problem/${encodeURIComponent(problemIndex)}`;
 };
 
 const isRegularOfficialProblem = (problem: CfProblem, contestsById: Map<number, CfContest>): problem is CfProblem & { contestId: number } => {
