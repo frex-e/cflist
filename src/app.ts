@@ -11,7 +11,6 @@ import {
   setSolvedOverride,
 } from "./db/queries.js";
 import {
-  problemRow,
   problemListUrl,
   problemSummaryOutOfBand,
   problemsAppendFragment,
@@ -146,13 +145,7 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono => {
     if (isHtmx(c) && updatedProblem) {
       const listUrl = new URL(returnTo ?? "/problems", c.req.url).toString();
       const options = problemListOptions(db, appConfig, listUrl);
-      return c.html(
-        `${problemSummaryOutOfBand(options)}${problemRow(updatedProblem, {
-          showTags: options.filters.showTags,
-          returnTo: returnTo ?? "/problems",
-          adminTokenEnabled: Boolean(appConfig.adminToken),
-        })}`,
-      );
+      return c.html(`${problemsListFragment(options)}${problemSummaryOutOfBand(options)}`);
     }
 
     if (c.req.header("accept")?.includes("application/json")) {

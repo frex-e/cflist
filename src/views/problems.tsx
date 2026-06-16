@@ -128,7 +128,7 @@ const StatusControl = (props: { row: ProblemRow; returnTo: string; adminTokenEna
 
   const isManualSolved = row.solved_override === 1;
   return (
-    <form class="status-form" method="post" action={action} hx-post={action} hx-target="closest tr" hx-swap="outerHTML">
+    <form class="status-form" method="post" action={action} hx-post={action} hx-target="#problem-list" hx-swap="outerHTML">
       <input type="hidden" name="solvedOverride" value={isManualSolved ? "" : "1"} />
       <input type="hidden" name="returnTo" value={returnTo} />
       <button
@@ -323,13 +323,14 @@ const FilterForm = ({ filters, options }: ProblemsPageOptions) => {
           <Option value="name" label="Name" selected={filters.sort === "name"} />
         </select>
       </label>
-      <label>
-        Direction
-        <select name="sortDirection">
-          <Option value="desc" label="Descending" selected={filters.sortDirection === "desc"} />
-          <Option value="asc" label="Ascending" selected={filters.sortDirection === "asc"} />
-        </select>
-      </label>
+      <fieldset class="direction-filter">
+        <legend>Direction</legend>
+        <label class="direction-toggle">
+          <input type="checkbox" name="sortDirection" value="asc" checked={filters.sortDirection === "asc"} />
+          <span>{filters.sortDirection === "asc" ? "Ascending" : "Descending"}</span>
+        </label>
+        <input type="hidden" name="sortDirection" value="desc" />
+      </fieldset>
       <label>
         Tag mode
         <select name="tagMode">

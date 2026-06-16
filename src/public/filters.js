@@ -13,7 +13,14 @@
 
     if (!minInput || !maxInput || !minHidden || !maxHidden || !minOutput || !maxOutput) return;
 
-    const sync = (changed) => {
+    const dispatchFilterChange = () => {
+      const event = new Event("change", { bubbles: true });
+      if (!minHidden.disabled) minHidden.dispatchEvent(event);
+      else if (!maxHidden.disabled) maxHidden.dispatchEvent(event);
+      else root.closest("form")?.dispatchEvent(event);
+    };
+
+    const sync = (changed, notify = false) => {
       let minValue = Number(minInput.value);
       let maxValue = Number(maxInput.value);
 
@@ -34,10 +41,12 @@
       maxHidden.disabled = maxValue === max;
       minHidden.value = minValue === min ? "" : String(minValue);
       maxHidden.value = maxValue === max ? "" : String(maxValue);
+
+      if (notify) dispatchFilterChange();
     };
 
-    minInput.addEventListener("input", () => sync("min"));
-    maxInput.addEventListener("input", () => sync("max"));
+    minInput.addEventListener("input", () => sync("min", true));
+    maxInput.addEventListener("input", () => sync("max", true));
     root.cflistSyncRatingFilter = () => sync();
 
     root.closest("form")?.addEventListener("reset", () => {
@@ -75,7 +84,23 @@
     });
   };
 
+  const setupDirectionToggle = (toggle) => {
+    const label = toggle.closest(".direction-toggle")?.querySelector("span");
+    if (!label) return;
+
+    const sync = () => {
+      label.textContent = toggle.checked ? "Ascending" : "Descending";
+    };
+
+    toggle.addEventListener("change", sync);
+    toggle.closest("form")?.addEventListener("reset", () => {
+      window.requestAnimationFrame(sync);
+    });
+    sync();
+  };
+
   document.querySelectorAll("[data-rating-filter]").forEach(setupRatingFilter);
+  document.querySelectorAll('.direction-toggle input[name="sortDirection"]').forEach(setupDirectionToggle);
 
   document.addEventListener(
     "click",

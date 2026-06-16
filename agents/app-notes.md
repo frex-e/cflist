@@ -42,7 +42,8 @@ Important constraints:
 - Problem filters use normal GET forms with JS enhancement:
   - without JS: form submission and pager links reload `/problems`
   - with HTMX: filter changes fetch `/problems/fragment`, swap the table, and update the canonical URL
-- Sort direction is URL-backed through `sortDirection=asc|desc`.
+- Rating slider changes update hidden GET fields and trigger the HTMX filter refresh automatically.
+- Sort direction is URL-backed through `sortDirection=asc|desc` and rendered as an asc/desc toggle button.
 - The problem table has an HTMX infinite-scroll sentinel. Reaching the bottom fetches the next `/problems/fragment?append=1` page and appends rows.
 - With JS enabled, the table label is cumulative, e.g. `Showing 1-100 of 11,245`, and pager links are hidden. Pager links remain as the no-JS fallback.
 - The filter panel scrolls with the page, not independently.

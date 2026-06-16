@@ -399,6 +399,60 @@ textarea {
   font-weight: 430;
 }
 
+.direction-filter {
+  display: grid;
+  gap: 5px;
+}
+
+.direction-toggle {
+  display: block;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.direction-toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.direction-toggle span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    color 120ms ease;
+}
+
+.direction-toggle:hover span {
+  background: var(--hover);
+  border-color: var(--text);
+}
+
+.direction-toggle input:checked + span {
+  border-color: var(--text);
+  background: var(--text);
+  color: #ffffff;
+}
+
+.direction-toggle input:focus + span {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.08);
+}
+
 .table-wrap {
   min-width: 0;
   overflow: hidden;
