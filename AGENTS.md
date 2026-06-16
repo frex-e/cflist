@@ -29,7 +29,6 @@ PORT=3001 npm start
 
 ## Important Files
 
-- `docs/ARCHITECTURE_PLAN.md`: original architecture plan and tradeoffs.
 - `agents/app-notes.md`: compact implementation notes for future agents.
 - `src/app.ts`: routes and write-route guards.
 - `src/db/queries.ts`: filter parsing, SQL queries, solved override writes.

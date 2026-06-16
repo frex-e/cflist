@@ -10,8 +10,11 @@ References:
 - `contest.list?gym=false`: official non-gym contest metadata.
 - `problemset.problems`: official regular problem list and solved counts.
 - `user.status?handle=inj`: accepted submissions for solved status.
+- `contest.standings`: not used. Anonymous regular-contest standings access is restricted to `contestId`-only requests, and gym/mashup standings need authenticated access from a permitted user.
 
 Gyms, `acmsguru`, and other non-regular sources are excluded.
+
+Codeforces API calls should remain serialized with at least a two-second delay between requests.
 
 ## Solved State
 
@@ -55,3 +58,11 @@ Important constraints:
 - `HOST` defaults to `127.0.0.1`; Docker sets `HOST=0.0.0.0`.
 - `DB_PATH` defaults to `./data/cflist.sqlite`.
 - `ADMIN_TOKEN` is optional; if set, write routes require it.
+- The app is designed for one Node process plus one persisted SQLite file. If multiple instances ever run, move sync to a separate command/cron or add a database lock.
+
+## Design Tradeoffs
+
+- Keep the app server-rendered and URL-backed; avoid adding a client-side app model unless the UI clearly needs it.
+- Contest family/division values are best-effort labels derived from contest names. Preserve raw contest names and keep `Unknown`/`Other` filter paths visible.
+- `raw_json` fields in the database are intentional; they preserve source API payloads for future UI needs without immediate migrations.
+- Use Node's built-in test runner. Current high-value test areas are contest classification, solved-status conversion, SQL/filter behavior, and HTMX row fragments.
