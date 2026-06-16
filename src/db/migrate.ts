@@ -124,6 +124,63 @@ export const migrate = (db: Db): void => {
       FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS user_contest_results (
+      user_id TEXT NOT NULL,
+      cf_handle TEXT NOT NULL,
+      contest_id INTEGER NOT NULL,
+      rank INTEGER,
+      points REAL,
+      penalty INTEGER,
+      participant_type TEXT,
+      old_rating INTEGER,
+      new_rating INTEGER,
+      rating_delta INTEGER,
+      performance INTEGER,
+      last_checked_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, contest_id),
+      FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE,
+      FOREIGN KEY (contest_id) REFERENCES contests(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS user_contest_problem_results (
+      user_id TEXT NOT NULL,
+      contest_id INTEGER NOT NULL,
+      problem_index TEXT NOT NULL,
+      points REAL,
+      penalty INTEGER,
+      rejected_attempt_count INTEGER,
+      best_submission_time_seconds INTEGER,
+      solved_in_contest INTEGER NOT NULL DEFAULT 0,
+      upsolved INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (user_id, contest_id, problem_index),
+      FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE,
+      FOREIGN KEY (contest_id, problem_index) REFERENCES problems(contest_id, problem_index) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS contest_rating_changes_cache (
+      contest_id INTEGER PRIMARY KEY,
+      raw_json TEXT NOT NULL,
+      fetched_at TEXT NOT NULL,
+      FOREIGN KEY (contest_id) REFERENCES contests(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS contest_standings_cache (
+      contest_id INTEGER PRIMARY KEY,
+      raw_json TEXT NOT NULL,
+      fetched_at TEXT NOT NULL,
+      FOREIGN KEY (contest_id) REFERENCES contests(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS contest_performance_cache (
+      contest_id INTEGER NOT NULL,
+      handle_key TEXT NOT NULL,
+      handle TEXT NOT NULL,
+      performance INTEGER,
+      calculated_at TEXT NOT NULL,
+      PRIMARY KEY (contest_id, handle_key),
+      FOREIGN KEY (contest_id) REFERENCES contests(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS user_default_filters (
       user_id TEXT PRIMARY KEY,
       query TEXT NOT NULL,
@@ -139,6 +196,9 @@ export const migrate = (db: Db): void => {
     CREATE INDEX IF NOT EXISTS idx_problem_tags_tag ON problem_tags(tag);
     CREATE INDEX IF NOT EXISTS idx_contests_derived ON contests(derived_family, derived_division);
     CREATE INDEX IF NOT EXISTS idx_user_status_user_solved ON user_problem_status(user_id, solved);
+    CREATE INDEX IF NOT EXISTS idx_user_contest_results_user ON user_contest_results(user_id, contest_id DESC);
+    CREATE INDEX IF NOT EXISTS idx_user_contest_problem_results_user ON user_contest_problem_results(user_id, contest_id);
+    CREATE INDEX IF NOT EXISTS idx_contest_performance_cache_handle ON contest_performance_cache(handle_key);
     CREATE INDEX IF NOT EXISTS idx_sync_runs_started_at ON sync_runs(started_at);
   `);
 };

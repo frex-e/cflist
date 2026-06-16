@@ -24,6 +24,7 @@ export const layout = (options: { title: string; body: Child | string; user?: Au
           </a>
           <nav class="topnav">
             <a href="/problems">Problems</a>
+            <a href="/contests">Contests</a>
             <a href="https://codeforces.com/problemset" rel="noreferrer" target="_blank">
               Codeforces
             </a>

@@ -3,6 +3,7 @@ import { defaultSortDirection, type FilterOptions, type ListResult, type Problem
 import { formatDateTime, formatNumber } from "./html.js";
 import { layout } from "./layout.js";
 import type { AuthUser } from "../auth.js";
+import { ratingTitle } from "./rating.js";
 
 type ProblemsPageOptions = {
   filters: ProblemFilters;
@@ -100,20 +101,6 @@ const sourceLabel = (row: ProblemRow): string => {
   if (row.solved_override === 1) return "local solved";
   if (row.cf_solved === 1) return "codeforces solved";
   return "unsolved";
-};
-
-const ratingTitle = (rating: number | null): { name: string; className: string } => {
-  if (rating === null) return { name: "Unrated", className: "rank-unrated" };
-  if (rating < 1200) return { name: "Newbie", className: "rank-newbie" };
-  if (rating < 1400) return { name: "Pupil", className: "rank-pupil" };
-  if (rating < 1600) return { name: "Specialist", className: "rank-specialist" };
-  if (rating < 1900) return { name: "Expert", className: "rank-expert" };
-  if (rating < 2100) return { name: "Candidate Master", className: "rank-candidate-master" };
-  if (rating < 2300) return { name: "Master", className: "rank-master" };
-  if (rating < 2400) return { name: "International Master", className: "rank-international-master" };
-  if (rating < 2600) return { name: "Grandmaster", className: "rank-grandmaster" };
-  if (rating < 3000) return { name: "International Grandmaster", className: "rank-international-grandmaster" };
-  return { name: "Legendary Grandmaster", className: "rank-legendary-grandmaster" };
 };
 
 const StatusControl = (props: { row: ProblemRow; returnTo: string }) => {

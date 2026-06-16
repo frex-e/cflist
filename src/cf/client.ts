@@ -1,4 +1,4 @@
-import type { CfContest, CfProblemset, CfResponse, CfSubmission } from "./types.js";
+import type { CfContest, CfProblemset, CfRatingChange, CfResponse, CfStandings, CfSubmission } from "./types.js";
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -21,6 +21,18 @@ export class CodeforcesClient {
 
   async userStatus(handle: string): Promise<CfSubmission[]> {
     return this.request<CfSubmission[]>("/user.status", { handle });
+  }
+
+  async userRating(handle: string): Promise<CfRatingChange[]> {
+    return this.request<CfRatingChange[]>("/user.rating", { handle });
+  }
+
+  async contestRatingChanges(contestId: number): Promise<CfRatingChange[]> {
+    return this.request<CfRatingChange[]>("/contest.ratingChanges", { contestId: String(contestId) });
+  }
+
+  async contestStandings(contestId: number): Promise<CfStandings> {
+    return this.request<CfStandings>("/contest.standings", { contestId: String(contestId) });
   }
 
   private async request<T>(path: string, params: Record<string, string> = {}): Promise<T> {
@@ -51,4 +63,3 @@ export class CodeforcesClient {
     return payload.result;
   }
 }
-

@@ -619,6 +619,10 @@ th:last-child {
   white-space: nowrap;
 }
 
+.nowrap {
+  white-space: nowrap;
+}
+
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   font-size: 12.5px;
@@ -656,6 +660,10 @@ th:last-child {
   background: #808080;
 }
 
+.rating-value {
+  font-weight: 760;
+}
+
 .rank-unrated,
 .rank-newbie {
   background: #808080;
@@ -691,6 +699,38 @@ th:last-child {
   background: linear-gradient(90deg, #ff0000 0 50%, #111111 50% 100%);
 }
 
+.rating-unrated,
+.rating-newbie {
+  color: #808080;
+}
+
+.rating-pupil {
+  color: #008000;
+}
+
+.rating-specialist {
+  color: #03a89e;
+}
+
+.rating-expert {
+  color: #0000ff;
+}
+
+.rating-candidate-master {
+  color: #aa00aa;
+}
+
+.rating-master,
+.rating-international-master {
+  color: #ff8c00;
+}
+
+.rating-grandmaster,
+.rating-international-grandmaster,
+.rating-legendary-grandmaster {
+  color: #ff0000;
+}
+
 .tags {
   display: flex;
   flex-wrap: wrap;
@@ -718,6 +758,83 @@ td.tags {
 .tags-hidden {
   color: var(--faint);
   font-size: 12px;
+}
+
+.contest-title-cell {
+  display: grid;
+  gap: 3px;
+}
+
+.contest-label {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.contest-problems,
+.contest-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.contest-legend {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.contest-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.contest-problem-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  color: #ffffff;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 760;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.contest-problem-pill:hover {
+  text-decoration: none;
+}
+
+.contest-problem-pill.contest-solved {
+  border-color: var(--ok);
+  background: var(--ok);
+}
+
+.contest-problem-pill.upsolved {
+  border-color: #337d99;
+  background: #4b9fbd;
+}
+
+.contest-problem-pill.unsolved {
+  border-color: #777772;
+  background: #777772;
+}
+
+.delta-positive {
+  color: var(--ok);
+  font-weight: 700;
+}
+
+.delta-negative {
+  color: var(--danger);
+  font-weight: 700;
 }
 
 .status-form {

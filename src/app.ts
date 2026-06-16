@@ -8,6 +8,7 @@ import {
   getFilterOptions,
   getLatestUserSyncRun,
   getProblem,
+  listUserContestResults,
   listProblems,
   normalizeFilters,
   setDefaultFilterQuery,
@@ -21,6 +22,7 @@ import {
   problemsListFragment,
   problemsPage,
 } from "./views/problems.js";
+import { contestsPage } from "./views/contests.js";
 import { layout } from "./views/layout.js";
 import { signInPage, signUpPage } from "./views/auth.js";
 import { syncState, syncUserStatus } from "./cf/sync.js";
@@ -252,6 +254,18 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
     const user = requireUser(c);
     if (user instanceof Response) return user;
     return c.html(problemsPage(problemListOptions(db, user, c.req.url, defaultFilterParams(db, user.id, c.req.url))));
+  });
+
+  app.get("/contests", (c) => {
+    const user = requireUser(c);
+    if (user instanceof Response) return user;
+
+    return c.html(contestsPage({
+      rows: listUserContestResults(db, user.id),
+      latestSync: getLatestUserSyncRun(db, user.id),
+      syncRunning: syncState.userRunning.has(user.id),
+      user,
+    }));
   });
 
   app.get("/problems/fragment", (c) => {

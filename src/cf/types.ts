@@ -50,3 +50,44 @@ export type CfSubmission = {
   memoryConsumedBytes?: number;
 };
 
+export type CfRatingChange = {
+  contestId: number;
+  contestName: string;
+  handle: string;
+  rank: number;
+  ratingUpdateTimeSeconds: number;
+  oldRating: number;
+  newRating: number;
+};
+
+export type CfProblemResult = {
+  points: number;
+  penalty?: number;
+  rejectedAttemptCount?: number;
+  type?: string;
+  bestSubmissionTimeSeconds?: number;
+};
+
+export type CfStandingsRow = {
+  party: {
+    contestId?: number;
+    members: { handle: string; name?: string }[];
+    participantType?: string;
+    teamId?: number;
+    teamName?: string;
+    ghost?: boolean;
+    room?: number;
+    startTimeSeconds?: number;
+  };
+  rank: number;
+  points: number;
+  penalty: number;
+  problemResults: CfProblemResult[];
+  lastSubmissionTimeSeconds?: number;
+};
+
+export type CfStandings = {
+  contest: CfContest;
+  problems: CfProblem[];
+  rows: CfStandingsRow[];
+};

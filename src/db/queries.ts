@@ -62,6 +62,34 @@ export type ListResult = {
   unsolved: number;
 };
 
+export type ContestProblemResultRow = {
+  contest_id: number;
+  problem_index: string;
+  name: string;
+  url: string;
+  solved_in_contest: number;
+  upsolved: number;
+  points: number | null;
+  rejected_attempt_count: number | null;
+  best_submission_time_seconds: number | null;
+};
+
+export type ContestResultRow = {
+  contest_id: number;
+  contest_name: string;
+  start_time_seconds: number | null;
+  derived_label: string | null;
+  rank: number | null;
+  points: number | null;
+  penalty: number | null;
+  participant_type: string | null;
+  old_rating: number | null;
+  new_rating: number | null;
+  rating_delta: number | null;
+  performance: number | null;
+  problems: ContestProblemResultRow[];
+};
+
 const clamp = (value: number, min: number, max: number): number => {
   return Math.min(Math.max(value, min), max);
 };
@@ -434,4 +462,81 @@ export const setDefaultFilterQuery = (db: Db, userId: string, query: string): vo
       updated_at = excluded.updated_at
   `,
   ).run({ userId, query, updatedAt: new Date().toISOString() });
+};
+
+export const listUserContestResults = (
+  db: Db,
+  userId: string,
+  limit = 50,
+): ContestResultRow[] => {
+  const rows = db
+    .prepare(
+      `
+      SELECT
+        ucr.contest_id,
+        c.name AS contest_name,
+        c.start_time_seconds,
+        c.derived_label,
+        ucr.rank,
+        ucr.points,
+        ucr.penalty,
+        ucr.participant_type,
+        ucr.old_rating,
+        ucr.new_rating,
+        ucr.rating_delta,
+        ucr.performance
+      FROM user_contest_results ucr
+      JOIN contests c ON c.id = ucr.contest_id
+      WHERE ucr.user_id = @userId
+      ORDER BY c.start_time_seconds DESC, ucr.contest_id DESC
+      LIMIT @limit
+    `,
+    )
+    .all({ userId, limit }) as Omit<ContestResultRow, "problems">[];
+
+  if (rows.length === 0) return [];
+
+  const contestIds = rows.map((row, index) => {
+    const key = `contestId${index}`;
+    return { key, value: row.contest_id };
+  });
+  const placeholders = contestIds.map((item) => `@${item.key}`).join(", ");
+  const params: SqlParams = { userId };
+  for (const item of contestIds) params[item.key] = item.value;
+
+  const problemRows = db
+    .prepare(
+      `
+      SELECT
+        ucpr.contest_id,
+        ucpr.problem_index,
+        p.name,
+        p.url,
+        ucpr.solved_in_contest,
+        ucpr.upsolved,
+        ucpr.points,
+        ucpr.rejected_attempt_count,
+        ucpr.best_submission_time_seconds
+      FROM user_contest_problem_results ucpr
+      JOIN problems p
+        ON p.contest_id = ucpr.contest_id
+        AND p.problem_index = ucpr.problem_index
+      WHERE ucpr.user_id = @userId
+        AND ucpr.contest_id IN (${placeholders})
+      ORDER BY ucpr.contest_id DESC, ucpr.problem_index ASC
+    `,
+    )
+    .all(params) as ContestProblemResultRow[];
+
+  const problemsByContestId = new Map<number, ContestProblemResultRow[]>();
+  for (const problem of problemRows) {
+    const problems = problemsByContestId.get(problem.contest_id) ?? [];
+    problems.push(problem);
+    problemsByContestId.set(problem.contest_id, problems);
+  }
+
+  return rows.map((row) => ({
+    ...row,
+    problems: problemsByContestId.get(row.contest_id) ?? [],
+  }));
 };

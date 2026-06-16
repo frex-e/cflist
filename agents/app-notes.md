@@ -9,8 +9,10 @@ References:
 
 - `contest.list?gym=false`: official non-gym contest metadata.
 - `problemset.problems`: official regular problem list and solved counts.
-- `user.status?handle=<account cfHandle>`: accepted submissions for per-account solved status.
-- `contest.standings`: not used. Anonymous regular-contest standings access is restricted to `contestId`-only requests, and gym/mashup standings need authenticated access from a permitted user.
+- `user.status?handle=<account cfHandle>`: accepted submissions for per-account solved status and upsolve detection.
+- `user.rating?handle=<account cfHandle>`: rated contest history for rank and official rating deltas.
+- `contest.ratingChanges?contestId=<id>`: rated participant ranks/ratings used to estimate per-contest performance.
+- `contest.standings?contestId=<id>`: full public standings used for user row score, penalty, participant type, and per-problem contest results for recent contests. Non-gym standings reject extra parameters such as `handles`, so filter locally.
 
 Gyms, `acmsguru`, and other non-regular sources are excluded.
 
@@ -33,7 +35,13 @@ Important constraints:
 - Manual overrides are additive; they do not represent local "unsolved" state.
 - API-solved rows are non-clickable in the list.
 - `contests`, `problems`, and `problem_tags` are shared catalog data.
-- `user_problem_status`, `user_problem_overrides`, and `user_default_filters` are keyed by auth `user_id`.
+- `user_problem_status`, `user_problem_overrides`, `user_contest_results`, `user_contest_problem_results`, and `user_default_filters` are keyed by auth `user_id`.
+- User sync refreshes solved status and up to 30 recent contest result rows. Contest participation is discovered from `user.rating` plus in-contest submissions when possible.
+- Contest problem pills classify solved-in-contest from standings rows and upsolves from accepted submissions after contest end.
+- Shared contest endpoint responses are cached in `contest_rating_changes_cache` and `contest_standings_cache`; performance estimates are cached in `contest_performance_cache`.
+- User sync skips complete existing contest rows, recomputes only cheap upsolve flags from `user.status`, and only calculates performance when no cached/user value exists.
+- User sync commits catalog and solved-status updates before contest refresh work. Contest rows are then written one contest at a time as each result is calculated.
+- Standings can include problems absent from the local `problems` catalog. Skip those per-problem rows instead of inserting them, because `user_contest_problem_results` has a foreign key to catalog problems.
 - Existing pre-auth databases do not need migration; deleting `data/cflist.sqlite` is acceptable.
 
 ## UI Behavior
@@ -44,6 +52,7 @@ Important constraints:
 - Division and tag filters are checkbox lists.
 - Rating filter uses sliders backed by hidden `minRating` / `maxRating` fields.
 - Problem id/name links go directly to the contest-scoped Codeforces problem page; there is no local problem detail page.
+- `/contests` shows recent synced contest rows with rank, score, rating delta, estimated performance, and per-problem solve/upsolve pills.
 - Bare `/problems` applies the signed-in user's saved default filters from SQLite when one is set. Explicit query params still win.
 - Problem solved toggles use normal forms with JS enhancement:
   - without JS: form POST redirects back
