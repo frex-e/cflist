@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.13.8",
-    "hono": "^4.6.16"
+    "hono": "^4.6.16",
+    "htmx.org": "^2.0.4"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

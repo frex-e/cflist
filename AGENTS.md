@@ -9,7 +9,7 @@ CFList is a small personal Codeforces problem index.
 - Runtime: Node.js 24+ with TypeScript.
 - Web app: Hono, server-rendered HTML.
 - Database: SQLite through Node's built-in `node:sqlite`.
-- Frontend: plain CSS plus small vanilla JS in `src/public/filters.js`.
+- Frontend: Hono TSX server views, plain CSS, HTMX for HTML fragment swaps, and small vanilla JS in `src/public/filters.js`.
 - Persistent local state: `data/cflist.sqlite` (gitignored).
 
 ## Commands
@@ -34,8 +34,8 @@ PORT=3001 npm start
 - `src/app.ts`: routes and write-route guards.
 - `src/db/queries.ts`: filter parsing, SQL queries, solved override writes.
 - `src/cf/sync.ts`: Codeforces sync.
-- `src/views/problems.ts`: problem list rendering.
-- `src/public/filters.js`: client-side rating slider, dynamic filters, infinite scroll, and no-refresh solved toggle.
+- `src/views/problems.tsx`: problem list rendering.
+- `src/public/filters.js`: client-side rating slider and filter reset helper; HTMX owns fragment swaps.
 
 ## External References
 

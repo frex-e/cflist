@@ -30,6 +30,7 @@ Important constraints:
 
 ## UI Behavior
 
+- Server-rendered UI lives in Hono TSX views under `src/views/`.
 - Filters are URL-backed and should remain shareable/bookmarkable.
 - Tags are hidden in the table unless `showTags=1`.
 - Division and tag filters are checkbox lists.
@@ -37,11 +38,13 @@ Important constraints:
 - Problem id/name links go directly to Codeforces; there is no local problem detail page.
 - Problem solved toggles use normal forms with JS enhancement:
   - without JS: form POST redirects back
-  - with JS: `src/public/filters.js` updates the row in place
+  - with HTMX: the POST returns a server-rendered row and swaps it in place
 - Problem filters use normal GET forms with JS enhancement:
   - without JS: form submission and pager links reload `/problems`
-  - with JS: filter changes fetch `/problems/fragment`, swap the table, and update the URL
-- The problem table has an infinite-scroll sentinel. When JS is enabled, reaching the bottom fetches the next `/problems/fragment` page and appends rows; pager links remain as fallback.
+  - with HTMX: filter changes fetch `/problems/fragment`, swap the table, and update the canonical URL
+- Sort direction is URL-backed through `sortDirection=asc|desc`.
+- The problem table has an HTMX infinite-scroll sentinel. Reaching the bottom fetches the next `/problems/fragment?append=1` page and appends rows.
+- With JS enabled, the table label is cumulative, e.g. `Showing 1-100 of 11,245`, and pager links are hidden. Pager links remain as the no-JS fallback.
 - The filter panel scrolls with the page, not independently.
 
 ## Deployment Notes

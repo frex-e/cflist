@@ -35,13 +35,14 @@ Use a small server-rendered TypeScript app:
 - Runtime: Node.js 24+.
 - Web framework: Hono.
 - Database: SQLite via Node's built-in `node:sqlite`.
-- Frontend: server-rendered HTML, plain CSS, and small vanilla TypeScript for table interactions only where it improves ergonomics.
+- Frontend: server-rendered Hono TSX, HTMX for fragment swaps, plain CSS, and small vanilla JavaScript for controls HTMX does not cover.
 - Build/dev tooling: TypeScript, `tsx` for dev, `esbuild` for the small browser script if needed.
 
 Why this stack:
 
 - One deployable Node process plus one SQLite file.
 - No React/Next/Prisma/Tailwind stack unless we later decide the UI needs it.
+- HTMX keeps dynamic filters, row updates, and infinite scroll server-rendered instead of introducing a client-side application model.
 - No native SQLite package to compile; Node provides the SQLite binding.
 - Server-side filtering keeps the client simple and makes URLs shareable.
 - SQLite is enough for tens of thousands of problems/submissions and gives permanent state without running Postgres.
@@ -67,11 +68,11 @@ Recommended directory layout:
 │   │   ├── classify.ts        # contest type/division derivation from contest names
 │   │   └── sync.ts            # refresh problems, contests, solved status
 │   ├── views/
-│   │   ├── layout.ts          # HTML shell
-│   │   └── problems.ts        # problem list page and list fragment
+│   │   ├── layout.tsx         # HTML shell
+│   │   └── problems.tsx       # problem list page and list fragment
 │   └── public/
 │       ├── styles.css
-│       └── filters.js         # progressive filter/list enhancements
+│       └── filters.js         # rating slider and reset helper
 ├── data/
 │   └── cflist.sqlite          # ignored local DB
 ├── package.json

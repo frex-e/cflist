@@ -303,9 +303,12 @@ textarea {
 
 .filter-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
   gap: 8px;
   padding-top: 2px;
+}
+
+.filter-actions noscript {
+  display: contents;
 }
 
 .filter-actions-top {
@@ -401,7 +404,7 @@ textarea {
   overflow: hidden;
 }
 
-.table-wrap.is-loading {
+.table-wrap.htmx-request {
   opacity: 0.72;
 }
 
@@ -421,6 +424,10 @@ textarea {
 .pager {
   display: flex;
   gap: 7px;
+}
+
+.js .pager {
+  display: none;
 }
 
 table {
@@ -651,7 +658,7 @@ button.status-button {
 }
 
 .load-more {
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   min-height: 46px;
@@ -659,6 +666,10 @@ button.status-button {
   background: var(--surface-subtle);
   color: var(--muted);
   font-size: 13px;
+}
+
+.js .load-more {
+  display: flex;
 }
 
 .load-more[hidden] {

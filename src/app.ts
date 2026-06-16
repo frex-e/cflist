@@ -10,7 +10,14 @@ import {
   normalizeFilters,
   setSolvedOverride,
 } from "./db/queries.js";
-import { problemsListFragment, problemsPage } from "./views/problems.js";
+import {
+  problemRow,
+  problemListUrl,
+  problemSummaryOutOfBand,
+  problemsAppendFragment,
+  problemsListFragment,
+  problemsPage,
+} from "./views/problems.js";
 import { layout } from "./views/layout.js";
 import { syncCodeforces, syncState } from "./cf/sync.js";
 
@@ -80,9 +87,18 @@ const problemListOptions = (db: Db, appConfig: AppConfig, requestUrl: string) =>
   };
 };
 
+const isHtmx = (c: Context): boolean => c.req.header("hx-request") === "true";
+
 export const createApp = (db: Db, appConfig: AppConfig): Hono => {
   const app = new Hono();
 
+  app.use(
+    "/public/htmx.min.js",
+    serveStatic({
+      root: "./node_modules/htmx.org/dist",
+      rewriteRequestPath: () => "/htmx.min.js",
+    }),
+  );
   app.use("/public/*", serveStatic({ root: appConfig.publicRoot }));
 
   app.get("/", (c) => c.redirect("/problems"));
@@ -94,7 +110,16 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono => {
   app.get("/problems", (c) => c.html(problemsPage(problemListOptions(db, appConfig, c.req.url))));
 
   app.get("/problems/fragment", (c) => {
-    return c.html(problemsListFragment(problemListOptions(db, appConfig, c.req.url)));
+    const options = problemListOptions(db, appConfig, c.req.url);
+    if (c.req.query("append") === "1") {
+      return c.html(problemsAppendFragment(options));
+    }
+
+    if (isHtmx(c)) {
+      c.header("HX-Push-Url", problemListUrl(options.filters, options.filters.page));
+    }
+
+    return c.html(`${problemSummaryOutOfBand(options)}${problemsListFragment(options)}`);
   });
 
   app.post("/problems/:contestId/:index/override", async (c) => {
@@ -117,6 +142,18 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono => {
 
     setSolvedOverride(db, appConfig.handle, contestId, index, solvedOverride, note);
     const updatedProblem = getProblem(db, appConfig.handle, contestId, index);
+
+    if (isHtmx(c) && updatedProblem) {
+      const listUrl = new URL(returnTo ?? "/problems", c.req.url).toString();
+      const options = problemListOptions(db, appConfig, listUrl);
+      return c.html(
+        `${problemSummaryOutOfBand(options)}${problemRow(updatedProblem, {
+          showTags: options.filters.showTags,
+          returnTo: returnTo ?? "/problems",
+          adminTokenEnabled: Boolean(appConfig.adminToken),
+        })}`,
+      );
+    }
 
     if (c.req.header("accept")?.includes("application/json")) {
       return c.json({

@@ -14,6 +14,7 @@ export type ProblemFilters = {
   solved: "all" | "solved" | "unsolved";
   showTags: boolean;
   sort: "rating" | "solvedCount" | "contest" | "name";
+  sortDirection: "asc" | "desc";
   page: number;
   pageSize: number;
   handle: string;
@@ -64,6 +65,10 @@ const clamp = (value: number, min: number, max: number): number => {
   return Math.min(Math.max(value, min), max);
 };
 
+export const defaultSortDirection = (sort: ProblemFilters["sort"]): ProblemFilters["sortDirection"] => {
+  return sort === "rating" || sort === "name" ? "asc" : "desc";
+};
+
 export const normalizeFilters = (input: URLSearchParams, handle: string): ProblemFilters => {
   const parseIntParam = (key: string): number | undefined => {
     const value = input.get(key);
@@ -81,7 +86,12 @@ export const normalizeFilters = (input: URLSearchParams, handle: string): Proble
   const tagMode = input.get("tagMode") === "any" ? "any" : "all";
   const solved = input.get("solved");
   const sort = input.get("sort");
+  const sortDirection = input.get("sortDirection");
   const showTags = input.get("showTags") === "1";
+  const normalizedSort =
+    sort === "rating" || sort === "solvedCount" || sort === "contest" || sort === "name"
+      ? sort
+      : "contest";
 
   return {
     q: input.get("q")?.trim() || undefined,
@@ -93,10 +103,11 @@ export const normalizeFilters = (input: URLSearchParams, handle: string): Proble
     divisions,
     solved: solved === "solved" || solved === "unsolved" ? solved : "all",
     showTags,
-    sort:
-      sort === "rating" || sort === "solvedCount" || sort === "contest" || sort === "name"
-        ? sort
-        : "contest",
+    sort: normalizedSort,
+    sortDirection:
+      sortDirection === "asc" || sortDirection === "desc"
+        ? sortDirection
+        : defaultSortDirection(normalizedSort),
     page,
     pageSize,
     handle,
@@ -184,11 +195,12 @@ const buildWhere = (filters: ProblemFilters): { where: string; params: SqlParams
   };
 };
 
-const orderBy = (sort: ProblemFilters["sort"]): string => {
-  if (sort === "rating") return "p.rating IS NULL, p.rating ASC, p.contest_id DESC, p.problem_index ASC";
-  if (sort === "solvedCount") return "p.solved_count DESC, p.contest_id DESC, p.problem_index ASC";
-  if (sort === "name") return "p.name COLLATE NOCASE ASC, p.contest_id DESC, p.problem_index ASC";
-  return "p.contest_id DESC, p.problem_index ASC";
+const orderBy = (sort: ProblemFilters["sort"], direction: ProblemFilters["sortDirection"]): string => {
+  const dir = direction === "asc" ? "ASC" : "DESC";
+  if (sort === "rating") return `p.rating IS NULL, p.rating ${dir}, p.contest_id DESC, p.problem_index ASC`;
+  if (sort === "solvedCount") return `p.solved_count IS NULL, p.solved_count ${dir}, p.contest_id DESC, p.problem_index ASC`;
+  if (sort === "name") return `p.name COLLATE NOCASE ${dir}, p.contest_id DESC, p.problem_index ASC`;
+  return `p.contest_id ${dir}, p.problem_index ASC`;
 };
 
 export const listProblems = (db: Db, filters: ProblemFilters): ListResult => {
@@ -216,7 +228,7 @@ export const listProblems = (db: Db, filters: ProblemFilters): ListResult => {
         ${solvedExpr} AS effective_solved
       ${baseFrom}
       ${where}
-      ORDER BY ${orderBy(filters.sort)}
+      ORDER BY ${orderBy(filters.sort, filters.sortDirection)}
       LIMIT @limit OFFSET @offset
     `,
     )
