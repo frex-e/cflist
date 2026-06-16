@@ -35,7 +35,7 @@ PORT=3001 npm start
 - `src/db/queries.ts`: filter parsing, SQL queries, solved override writes.
 - `src/cf/sync.ts`: Codeforces sync.
 - `src/views/problems.ts`: problem list rendering.
-- `src/public/filters.js`: client-side rating slider and no-refresh solved toggle.
+- `src/public/filters.js`: client-side rating slider, dynamic filters, infinite scroll, and no-refresh solved toggle.
 
 ## External References
 

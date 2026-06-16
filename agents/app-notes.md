@@ -34,9 +34,14 @@ Important constraints:
 - Tags are hidden in the table unless `showTags=1`.
 - Division and tag filters are checkbox lists.
 - Rating filter uses sliders backed by hidden `minRating` / `maxRating` fields.
+- Problem id/name links go directly to Codeforces; there is no local problem detail page.
 - Problem solved toggles use normal forms with JS enhancement:
   - without JS: form POST redirects back
   - with JS: `src/public/filters.js` updates the row in place
+- Problem filters use normal GET forms with JS enhancement:
+  - without JS: form submission and pager links reload `/problems`
+  - with JS: filter changes fetch `/problems/fragment`, swap the table, and update the URL
+- The problem table has an infinite-scroll sentinel. When JS is enabled, reaching the bottom fetches the next `/problems/fragment` page and appends rows; pager links remain as fallback.
 - The filter panel scrolls with the page, not independently.
 
 ## Deployment Notes

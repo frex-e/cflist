@@ -31,7 +31,12 @@ const buildUrl = (filters: ProblemFilters, page: number): string => {
   if (filters.sort !== "contest") params.set("sort", filters.sort);
   if (filters.pageSize !== 50) params.set("pageSize", String(filters.pageSize));
   if (page !== 1) params.set("page", String(page));
-  return `/problems?${params.toString()}`;
+  const query = params.toString();
+  return query ? `/problems?${query}` : "/problems";
+};
+
+export const problemSummaryText = ({ result, filters }: ProblemsPageOptions): string => {
+  return `${formatNumber(result.total)} matched, ${formatNumber(result.solved)} solved, ${formatNumber(result.unsolved)} unsolved for ${filters.handle}`;
 };
 
 const tagsForRow = (row: ProblemRow): string[] => {
@@ -68,7 +73,7 @@ const rowStatusControl = (row: ProblemRow, returnTo: string, adminTokenEnabled: 
   const action = `/problems/${row.contest_id}/${encodeURIComponent(row.problem_index)}/override`;
 
   if (adminTokenEnabled) {
-    return `<span class="status unsolved disabled-status" title="Open detail to change manual status"></span>`;
+    return `<span class="status unsolved disabled-status" title="Manual status changes require admin access"></span>`;
   }
 
   if (row.cf_solved === 1) {
@@ -98,11 +103,12 @@ const problemRow = (
   const problemId = `${row.contest_id}${row.problem_index}`;
   const title = ratingTitle(row.rating);
   const rowClass = row.effective_solved ? "problem-row solved-row" : "problem-row";
+  const problemUrl = escapeHtml(row.url);
 
   return `<tr class="${rowClass}" data-problem-row data-contest-id="${row.contest_id}" data-problem-index="${escapeHtml(row.problem_index)}">
     <td data-status-cell>${rowStatusControl(row, options.returnTo, options.adminTokenEnabled)}</td>
-    <td class="mono"><a href="/problems/${row.contest_id}/${encodeURIComponent(row.problem_index)}">${escapeHtml(problemId)}</a></td>
-    <td><div class="problem-title-cell"><span class="rank-dot ${title.className}" title="${escapeHtml(title.name)}"></span><a class="problem-name" href="/problems/${row.contest_id}/${encodeURIComponent(row.problem_index)}">${escapeHtml(row.name)}</a></div></td>
+    <td class="mono"><a href="${problemUrl}" rel="noreferrer" target="_blank">${escapeHtml(problemId)}</a></td>
+    <td><div class="problem-title-cell"><span class="rank-dot ${title.className}" title="${escapeHtml(title.name)}"></span><a class="problem-name" href="${problemUrl}" rel="noreferrer" target="_blank">${escapeHtml(row.name)}</a></div></td>
     <td class="num">${row.rating ?? ""}</td>
     <td>${options.showTags ? `<div class="tags">${tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>` : '<span class="tags-hidden">Hidden</span>'}</td>
     <td>${escapeHtml(row.derived_label ?? row.contest_name ?? "")}</td>
@@ -236,29 +242,40 @@ const syncPanel = (options: ProblemsPageOptions): string => {
   </section>`;
 };
 
-export const problemsPage = (options: ProblemsPageOptions): string => {
+export const problemsListFragment = (options: ProblemsPageOptions): string => {
   const { result, filters } = options;
   const totalPages = Math.max(1, Math.ceil(result.total / filters.pageSize));
   const prev = filters.page > 1 ? buildUrl(filters, filters.page - 1) : "";
   const next = filters.page < totalPages ? buildUrl(filters, filters.page + 1) : "";
   const returnTo = buildUrl(filters, filters.page);
+  const start = result.total === 0 ? 0 : (filters.page - 1) * filters.pageSize + 1;
+  const end = Math.min(filters.page * filters.pageSize, result.total);
+  const shown = result.rows.length;
+  const pageLabel =
+    result.total === 0
+      ? `Page ${formatNumber(filters.page)} of ${formatNumber(totalPages)}`
+      : `Page ${formatNumber(filters.page)} of ${formatNumber(totalPages)} · Showing ${formatNumber(start)}-${formatNumber(end)} of ${formatNumber(result.total)}`;
 
-  const body = `
-    <section class="hero">
-      <div>
-        <h1>Codeforces Problems</h1>
-        <p>${formatNumber(result.total)} matched, ${formatNumber(result.solved)} solved, ${formatNumber(result.unsolved)} unsolved for ${escapeHtml(filters.handle)}</p>
-      </div>
-    </section>
-    ${syncPanel(options)}
-    <div class="workspace">
-      ${filterForm(options)}
-      <section class="table-wrap">
+  return `<section
+        class="table-wrap"
+        data-problem-list
+        ${attrs({
+          "data-page": filters.page,
+          "data-page-size": filters.pageSize,
+          "data-total-pages": totalPages,
+          "data-total": result.total,
+          "data-solved": result.solved,
+          "data-unsolved": result.unsolved,
+          "data-shown": shown,
+          "data-next-url": next || undefined,
+          "data-summary": problemSummaryText(options),
+        })}
+      >
         <div class="table-head">
-          <span>Page ${formatNumber(filters.page)} of ${formatNumber(totalPages)}</span>
+          <span data-page-label>${escapeHtml(pageLabel)}</span>
           <div class="pager">
             ${prev ? `<a class="button secondary" href="${escapeHtml(prev)}">Previous</a>` : '<span class="button disabled">Previous</span>'}
-            ${next ? `<a class="button secondary" href="${escapeHtml(next)}">Next</a>` : '<span class="button disabled">Next</span>'}
+            ${next ? `<a class="button secondary" data-next-page href="${escapeHtml(next)}">Next</a>` : '<span class="button disabled">Next</span>'}
           </div>
         </div>
         <table>
@@ -273,7 +290,7 @@ export const problemsPage = (options: ProblemsPageOptions): string => {
               <th>Solved</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody data-problem-rows>
             ${
               result.rows.length
                 ? result.rows
@@ -289,7 +306,26 @@ export const problemsPage = (options: ProblemsPageOptions): string => {
             }
           </tbody>
         </table>
-      </section>
+        <div class="load-more" data-load-more ${next ? "" : "hidden"}>
+          <span>Loading more problems...</span>
+        </div>
+      </section>`;
+};
+
+export const problemsPage = (options: ProblemsPageOptions): string => {
+  const { filters } = options;
+
+  const body = `
+    <section class="hero">
+      <div>
+        <h1>Codeforces Problems</h1>
+        <p data-problem-summary>${escapeHtml(problemSummaryText(options))}</p>
+      </div>
+    </section>
+    ${syncPanel(options)}
+    <div class="workspace">
+      ${filterForm(options)}
+      ${problemsListFragment(options)}
     </div>`;
 
   return layout({ title: "CFList Problems", body });

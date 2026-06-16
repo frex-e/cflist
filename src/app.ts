@@ -10,8 +10,8 @@ import {
   normalizeFilters,
   setSolvedOverride,
 } from "./db/queries.js";
-import { problemPage, notFoundPage } from "./views/problem.js";
-import { problemsPage } from "./views/problems.js";
+import { problemsListFragment, problemsPage } from "./views/problems.js";
+import { layout } from "./views/layout.js";
 import { syncCodeforces, syncState } from "./cf/sync.js";
 
 export type AppConfig = {
@@ -56,6 +56,30 @@ const safeReturnTo = (value: string): string | undefined => {
   return value;
 };
 
+const notFoundPage = (): string => {
+  return layout({
+    title: "Not Found",
+    body: `<section class="hero"><h1>Not found</h1><p>The requested page does not exist.</p><a class="button" href="/problems">Back to problems</a></section>`,
+  });
+};
+
+const problemListOptions = (db: Db, appConfig: AppConfig, requestUrl: string) => {
+  const params = new URL(requestUrl).searchParams;
+  const filters = normalizeFilters(params, appConfig.handle);
+  const result = listProblems(db, filters);
+  const options = getFilterOptions(db);
+  const latestSync = getLatestSyncRun(db);
+
+  return {
+    filters,
+    result,
+    options,
+    latestSync,
+    syncRunning: syncState.running,
+    adminTokenEnabled: Boolean(appConfig.adminToken),
+  };
+};
+
 export const createApp = (db: Db, appConfig: AppConfig): Hono => {
   const app = new Hono();
 
@@ -67,40 +91,10 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono => {
     return c.json({ ok: true, syncRunning: syncState.running });
   });
 
-  app.get("/problems", (c) => {
-    const params = new URL(c.req.url).searchParams;
-    const filters = normalizeFilters(params, appConfig.handle);
-    const result = listProblems(db, filters);
-    const options = getFilterOptions(db);
-    const latestSync = getLatestSyncRun(db);
+  app.get("/problems", (c) => c.html(problemsPage(problemListOptions(db, appConfig, c.req.url))));
 
-    return c.html(
-      problemsPage({
-        filters,
-        result,
-        options,
-        latestSync,
-        syncRunning: syncState.running,
-        adminTokenEnabled: Boolean(appConfig.adminToken),
-      }),
-    );
-  });
-
-  app.get("/problems/:contestId/:index", (c) => {
-    const contestId = parseContestId(c.req.param("contestId"));
-    const index = c.req.param("index");
-    if (contestId === undefined) return c.html(notFoundPage(), 404);
-
-    const problem = getProblem(db, appConfig.handle, contestId, index);
-    if (!problem) return c.html(notFoundPage(), 404);
-
-    return c.html(
-      problemPage({
-        problem,
-        handle: appConfig.handle,
-        adminTokenEnabled: Boolean(appConfig.adminToken),
-      }),
-    );
+  app.get("/problems/fragment", (c) => {
+    return c.html(problemsListFragment(problemListOptions(db, appConfig, c.req.url)));
   });
 
   app.post("/problems/:contestId/:index/override", async (c) => {

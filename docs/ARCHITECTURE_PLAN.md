@@ -68,11 +68,10 @@ Recommended directory layout:
 │   │   └── sync.ts            # refresh problems, contests, solved status
 │   ├── views/
 │   │   ├── layout.ts          # HTML shell
-│   │   ├── problems.ts        # problem list page
-│   │   └── problem.ts         # problem detail page
+│   │   └── problems.ts        # problem list page and list fragment
 │   └── public/
 │       ├── styles.css
-│       └── filters.ts         # optional tiny browser helper
+│       └── filters.js         # progressive filter/list enhancements
 ├── data/
 │   └── cflist.sqlite          # ignored local DB
 ├── package.json
@@ -243,8 +242,7 @@ Core routes:
     - `sort=rating|solvedCount|contest|name`
     - `page`
     - `pageSize`
-- `GET /problems/:contestId/:index`
-  - Problem detail page with tags, rating, solved count, contest metadata, solved status, accepted submission details if available, and links to Codeforces.
+- Problem rows link directly to Codeforces problem URLs instead of local detail pages.
 - `POST /problems/:contestId/:index/override`
   - Set or clear a local solved override.
 - `POST /admin/sync`
@@ -275,18 +273,11 @@ Problem list:
   - tags
   - contest type/division
   - solved count
-  - Codeforces link
+  - problem links that open Codeforces directly
 - Small summary row:
   - total matched problems
   - solved/unsolved counts in current filter
   - latest sync time
-
-Problem detail:
-
-- Title and CF link.
-- Rating, tags, contest, solved count.
-- `inj` solved status.
-- First accepted submission id/time if available.
 
 ## Deployment
 
@@ -345,5 +336,5 @@ Resolved for version 1:
 
 Remaining:
 
-1. Should manual solved overrides live only on the problem detail page, or should the problem list also have quick toggle controls?
+1. Should manual solved overrides support admin-token entry directly in the list?
 2. Should `ADMIN_TOKEN` be required in production-like deployments, or just documented as strongly recommended?
