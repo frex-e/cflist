@@ -26,6 +26,7 @@ type AcceptedProblem = {
 };
 
 const MAX_CONTEST_RESULTS_SYNC = 30;
+const MAX_CONTEST_RESULTS_BACKFILL_SYNC = 3;
 
 type ContestProblemResult = {
   problemIndex: string;
@@ -94,6 +95,13 @@ const parseCachedJson = <T>(value: string | undefined): T | undefined => {
   }
 };
 
+const getCachedStandings = (db: Db, contestId: number): CfStandings | undefined => {
+  const cached = db
+    .prepare("SELECT raw_json FROM contest_standings_cache WHERE contest_id = @contestId")
+    .get({ contestId }) as { raw_json: string } | undefined;
+  return parseCachedJson<CfStandings>(cached?.raw_json);
+};
+
 const getOrFetchRatingChanges = async (
   db: Db,
   client: CodeforcesClient,
@@ -123,10 +131,7 @@ const getOrFetchStandings = async (
   client: CodeforcesClient,
   contestId: number,
 ): Promise<CfStandings> => {
-  const cached = db
-    .prepare("SELECT raw_json FROM contest_standings_cache WHERE contest_id = @contestId")
-    .get({ contestId }) as { raw_json: string } | undefined;
-  const cachedStandings = parseCachedJson<CfStandings>(cached?.raw_json);
+  const cachedStandings = getCachedStandings(db, contestId);
   if (cachedStandings) return cachedStandings;
 
   const standings = await client.contestStandings(contestId);
@@ -468,9 +473,31 @@ export const syncUserStatus = async (
       candidateContestIds.add(submission.contestId);
     }
 
-    const contestIds = [...candidateContestIds]
-      .sort((a, b) => contestSortValue(contestDetailsById.get(b), ratingsByContestId.get(b)) - contestSortValue(contestDetailsById.get(a), ratingsByContestId.get(a)))
-      .slice(0, MAX_CONTEST_RESULTS_SYNC);
+    const sortedCandidateContestIds = [...candidateContestIds]
+      .sort((a, b) => contestSortValue(contestDetailsById.get(b), ratingsByContestId.get(b)) - contestSortValue(contestDetailsById.get(a), ratingsByContestId.get(a)));
+    const completedContestRows = db.prepare(`
+      SELECT
+        ucr.contest_id,
+        COUNT(ucpr.problem_index) AS problem_count
+      FROM user_contest_results ucr
+      LEFT JOIN user_contest_problem_results ucpr
+        ON ucpr.user_id = ucr.user_id
+        AND ucpr.contest_id = ucr.contest_id
+      WHERE ucr.user_id = @userId
+      GROUP BY ucr.contest_id
+    `).all({ userId }) as { contest_id: number; problem_count: number }[];
+    const completedContestIds = new Set(
+      completedContestRows
+        .filter((row) => row.problem_count > 0)
+        .map((row) => row.contest_id),
+    );
+    const recentContestIds = sortedCandidateContestIds.slice(0, MAX_CONTEST_RESULTS_SYNC);
+    const recentContestIdSet = new Set(recentContestIds);
+    const backfillContestIds = sortedCandidateContestIds
+      .slice(MAX_CONTEST_RESULTS_SYNC)
+      .filter((contestId) => !recentContestIdSet.has(contestId) && !completedContestIds.has(contestId))
+      .slice(0, MAX_CONTEST_RESULTS_BACKFILL_SYNC);
+    const contestIds = [...recentContestIds, ...backfillContestIds];
     const checkedAt = now();
 
     const clearStatus = db.prepare("DELETE FROM user_problem_status WHERE user_id = @userId");
@@ -625,6 +652,51 @@ export const syncUserStatus = async (
         AND contest_id = @contestId
         AND problem_index = @problemIndex
     `);
+    const upsertStandingsProblem = db.prepare(`
+      INSERT INTO problems (
+        contest_id,
+        problemset_name,
+        problem_index,
+        name,
+        type,
+        points,
+        rating,
+        solved_count,
+        tags_json,
+        url,
+        raw_json,
+        updated_at
+      ) VALUES (
+        @contestId,
+        NULL,
+        @problemIndex,
+        @name,
+        @type,
+        @points,
+        @rating,
+        NULL,
+        @tagsJson,
+        @url,
+        @rawJson,
+        @updatedAt
+      )
+      ON CONFLICT(contest_id, problem_index) DO UPDATE SET
+        name = excluded.name,
+        type = excluded.type,
+        points = excluded.points,
+        rating = excluded.rating,
+        tags_json = excluded.tags_json,
+        url = excluded.url,
+        raw_json = excluded.raw_json,
+        updated_at = excluded.updated_at
+    `);
+    const deleteProblemTags = db.prepare(
+      "DELETE FROM problem_tags WHERE contest_id = @contestId AND problem_index = @problemIndex",
+    );
+    const insertProblemTag = db.prepare(`
+      INSERT OR IGNORE INTO problem_tags (contest_id, problem_index, tag)
+      VALUES (@contestId, @problemIndex, @tag)
+    `);
 
     const contestIdParams: Record<string, number> = {};
     const contestIdPlaceholders = contestIds.map((contestId, index) => {
@@ -647,6 +719,32 @@ export const syncUserStatus = async (
 
     let refreshedContestResults = 0;
     let skippedContestResults = 0;
+
+    const writeStandingsProblems = (contestId: number, standings: CfStandings): void => transaction(db, () => {
+      for (const problem of standings.problems) {
+        if (!isRegularOfficialProblem(problem, contestsById)) continue;
+        if (problem.contestId !== contestId) continue;
+
+        const tags = [...new Set(problem.tags)].sort((a, b) => a.localeCompare(b));
+        upsertStandingsProblem.run({
+          contestId,
+          problemIndex: problem.index,
+          name: problem.name,
+          type: problem.type ?? null,
+          points: problem.points ?? null,
+          rating: problem.rating ?? null,
+          tagsJson: JSON.stringify(tags),
+          url: codeforcesProblemUrl(contestId, problem.index),
+          rawJson: JSON.stringify(problem),
+          updatedAt: checkedAt,
+        });
+        deleteProblemTags.run({ contestId, problemIndex: problem.index });
+        for (const tag of tags) {
+          insertProblemTag.run({ contestId, problemIndex: problem.index, tag });
+        }
+        knownProblems.add(problemKey(contestId, problem.index));
+      }
+    });
 
     const writeContestResult = (result: ContestResult): void => transaction(db, () => {
       upsertContestResult.run({
@@ -710,24 +808,30 @@ export const syncUserStatus = async (
       } | undefined;
 
       if (existing && existing.problem_count > 0) {
-        const needsPerformance = ratingChange && existing.performance === null && existing.rank !== 1;
-        const performance = needsPerformance
-          ? await getOrCalculatePerformance(db, client, contestId, cfHandle)
-          : existing.performance;
-        updateExistingContestResult.run({
-          userId,
-          cfHandle,
-          contestId,
-          rank: existing.rank ?? ratingChange?.rank ?? null,
-          oldRating: ratingChange?.oldRating ?? null,
-          newRating: ratingChange?.newRating ?? null,
-          ratingDelta: ratingChange ? ratingChange.newRating - ratingChange.oldRating : null,
-          performance,
-          checkedAt,
-        });
-        recomputeExistingUpsolves(contestId);
-        skippedContestResults += 1;
-        continue;
+        const cachedStandings = getCachedStandings(db, contestId);
+        const standingsProblemCount = cachedStandings?.problems.length ?? 0;
+        if (cachedStandings && existing.problem_count < standingsProblemCount) {
+          writeStandingsProblems(contestId, cachedStandings);
+        } else {
+          const needsPerformance = ratingChange && existing.performance === null && existing.rank !== 1;
+          const performance = needsPerformance
+            ? await getOrCalculatePerformance(db, client, contestId, cfHandle)
+            : existing.performance;
+          updateExistingContestResult.run({
+            userId,
+            cfHandle,
+            contestId,
+            rank: existing.rank ?? ratingChange?.rank ?? null,
+            oldRating: ratingChange?.oldRating ?? null,
+            newRating: ratingChange?.newRating ?? null,
+            ratingDelta: ratingChange ? ratingChange.newRating - ratingChange.oldRating : null,
+            performance,
+            checkedAt,
+          });
+          recomputeExistingUpsolves(contestId);
+          skippedContestResults += 1;
+          continue;
+        }
       }
 
       const performance = ratingChange
@@ -735,6 +839,7 @@ export const syncUserStatus = async (
         : null;
 
       const standings = await getOrFetchStandings(db, client, contestId);
+      writeStandingsProblems(contestId, standings);
       const row = standings.rows.find((standingsRow) => hasHandle(standingsRow, cfHandle));
       if (!row && !ratingChange) continue;
 

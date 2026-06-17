@@ -17,7 +17,9 @@ const seedCatalog = (db: DatabaseSync): void => {
       derived_label,
       raw_json,
       updated_at
-    ) VALUES (1100, 'Codeforces Round 1100 (Div. 2)', 1760000000, 7200, 'Codeforces Round', 'Div. 2', 'Codeforces Round (Div. 2)', '{}', '2026-01-01T00:00:00.000Z')
+    ) VALUES
+      (1099, 'Codeforces Round 1099 (Div. 2)', 1750000000, 7200, 'Codeforces Round', 'Div. 2', 'Codeforces Round (Div. 2)', '{}', '2026-01-01T00:00:00.000Z'),
+      (1100, 'Codeforces Round 1100 (Div. 2)', 1760000000, 7200, 'Codeforces Round', 'Div. 2', 'Codeforces Round (Div. 2)', '{}', '2026-01-01T00:00:00.000Z')
   `,
   ).run();
 
@@ -103,6 +105,25 @@ test("contests page renders rating, performance, and problem outcome pills", asy
     `,
     ).run({ userId: user.id });
 
+    db.prepare(
+      `
+      INSERT INTO user_contest_results (
+        user_id,
+        cf_handle,
+        contest_id,
+        rank,
+        points,
+        penalty,
+        participant_type,
+        old_rating,
+        new_rating,
+        rating_delta,
+        performance,
+        last_checked_at
+      ) VALUES (@userId, 'inj', 1099, 80, 2, 240, 'CONTESTANT', 1850, 1900, 50, 1980, '2026-01-01T00:00:00.000Z')
+    `,
+    ).run({ userId: user.id });
+
     for (const row of [
       { index: "A", solved: 1, upsolved: 0 },
       { index: "B", solved: 0, upsolved: 1 },
@@ -126,6 +147,10 @@ test("contests page renders rating, performance, and problem outcome pills", asy
 
     assert.equal(response.status, 200);
     assert.match(html, /Codeforces Round 1100 \(Div\. 2\)/);
+    assert.match(html, /class="rating-charts"/);
+    assert.match(html, /aria-label="Rating chart"/);
+    assert.match(html, /aria-label="Performance chart"/);
+    assert.match(html, /chart-band-candidate-master/);
     assert.match(html, /<td class="num">42<\/td>/);
     assert.match(html, /<td class="num delta-positive">\+50<\/td>/);
     assert.match(html, /rating-value rating-candidate-master/);

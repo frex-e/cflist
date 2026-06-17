@@ -770,6 +770,146 @@ td.tags {
   font-size: 11px;
 }
 
+.rating-charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0 0 14px;
+}
+
+.rating-chart-panel {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.rating-chart-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 8px;
+}
+
+.rating-chart-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 760;
+  letter-spacing: 0;
+}
+
+.rating-chart-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.rating-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 330px;
+  border-top: 1px solid var(--border);
+  background: #ffffff;
+}
+
+.rating-chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.chart-band-newbie {
+  fill: #cccccc;
+  background: #cccccc;
+}
+
+.chart-band-pupil {
+  fill: #66ff66;
+  background: #66ff66;
+}
+
+.chart-band-specialist {
+  fill: #77ddbb;
+  background: #77ddbb;
+}
+
+.chart-band-expert {
+  fill: #aaaaff;
+  background: #aaaaff;
+}
+
+.chart-band-candidate-master {
+  fill: #ee77ee;
+  background: #ee77ee;
+}
+
+.chart-band-master {
+  fill: #ffcc88;
+  background: #ffcc88;
+}
+
+.chart-band-international-master {
+  fill: #ffbb55;
+  background: #ffbb55;
+}
+
+.chart-band-grandmaster {
+  fill: #ff7777;
+  background: #ff7777;
+}
+
+.chart-band-international-grandmaster {
+  fill: #ff3333;
+  background: #ff3333;
+}
+
+.chart-band-legendary-grandmaster {
+  fill: #bb0000;
+  background: #bb0000;
+}
+
+.chart-grid {
+  stroke: rgba(80, 80, 80, 0.3);
+  stroke-width: 1;
+}
+
+.chart-grid-vertical {
+  stroke: rgba(80, 80, 80, 0.18);
+}
+
+.chart-axis {
+  stroke: #4f4f4f;
+  stroke-width: 2;
+}
+
+.chart-line {
+  fill: none;
+  stroke: #e0b22e;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+
+.chart-point {
+  fill: #ffffff;
+  stroke: #d7a91f;
+  stroke-width: 3;
+}
+
+.chart-y-label,
+.chart-x-label {
+  fill: #555555;
+  font-size: 13px;
+  font-weight: 650;
+}
+
 .contest-problems,
 .contest-legend {
   display: flex;
@@ -925,6 +1065,10 @@ button.status-button {
 
 @media (max-width: 980px) {
   .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .rating-charts {
     grid-template-columns: 1fr;
   }
 
