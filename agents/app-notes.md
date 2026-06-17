@@ -36,11 +36,12 @@ Important constraints:
 - API-solved rows are non-clickable in the list.
 - `contests`, `problems`, and `problem_tags` are shared catalog data.
 - `user_problem_status`, `user_problem_overrides`, `user_contest_results`, `user_contest_problem_results`, and `user_default_filters` are keyed by auth `user_id`.
-- User sync refreshes solved status, up to 30 recent contest result rows, and up to 3 older incomplete contest rows per refresh. Contest participation is discovered from `user.rating` plus in-contest submissions when possible.
+- User sync refreshes solved status and basic contest rows from `user.rating`, then queues standings hydration for up to 30 recent contests plus up to 3 older incomplete contests per refresh. Contest participation is discovered from `user.rating` plus in-contest submissions when possible.
 - Contest problem pills classify solved-in-contest from standings rows and upsolves from accepted submissions after contest end.
 - Shared contest endpoint responses are cached in `contest_rating_changes_cache` and `contest_standings_cache`; performance estimates are cached in `contest_performance_cache`.
-- User sync skips complete existing contest rows, recomputes only cheap upsolve flags from `user.status`, and only calculates performance when no cached/user value exists.
-- User sync commits catalog and solved-status updates before contest refresh work. Contest rows are then written one contest at a time as each result is calculated.
+- `contest_sync_jobs` is a SQLite-backed low-priority queue drained by the web process. It hydrates one user/contest row at a time, preserving the single-process deployment shape.
+- User sync skips complete existing contest rows, recomputes only cheap upsolve flags from `user.status`, and leaves performance/standings work to queued hydration.
+- User sync commits catalog, solved-status, and basic rating updates before contest refresh work. Queued contest rows are then written one contest at a time as each result is calculated.
 - Standings can include contest-scoped problems absent from `problemset.problems`, especially shared Div. 1/Div. 2 rounds. User sync imports those standings problems into `problems` before writing `user_contest_problem_results`.
 - Existing pre-auth databases do not need migration; deleting `data/cflist.sqlite` is acceptable.
 
@@ -77,7 +78,7 @@ Important constraints:
 - `DB_PATH` defaults to `./data/cflist.sqlite`.
 - Set `BETTER_AUTH_SECRET` or `AUTH_SECRET` to a random 32+ byte value outside local development.
 - Set `BETTER_AUTH_URL` or `AUTH_BASE_URL` to the public origin in deployment.
-- The app is designed for one Node process plus one persisted SQLite file. If multiple instances ever run, move sync to a separate command/cron or add a database lock.
+- The app is designed for one Node process plus one persisted SQLite file. If multiple instances ever run, move contest queue draining to a separate command/cron or add a database lock.
 
 ## Design Tradeoffs
 

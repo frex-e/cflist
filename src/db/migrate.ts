@@ -181,6 +181,25 @@ export const migrate = (db: Db): void => {
       FOREIGN KEY (contest_id) REFERENCES contests(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS contest_sync_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      cf_handle TEXT NOT NULL,
+      contest_id INTEGER NOT NULL,
+      priority INTEGER NOT NULL DEFAULT 100,
+      status TEXT NOT NULL DEFAULT 'queued',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      available_at TEXT NOT NULL,
+      started_at TEXT,
+      finished_at TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (user_id, contest_id),
+      FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE,
+      FOREIGN KEY (contest_id) REFERENCES contests(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS user_default_filters (
       user_id TEXT PRIMARY KEY,
       query TEXT NOT NULL,
@@ -199,6 +218,8 @@ export const migrate = (db: Db): void => {
     CREATE INDEX IF NOT EXISTS idx_user_contest_results_user ON user_contest_results(user_id, contest_id DESC);
     CREATE INDEX IF NOT EXISTS idx_user_contest_problem_results_user ON user_contest_problem_results(user_id, contest_id);
     CREATE INDEX IF NOT EXISTS idx_contest_performance_cache_handle ON contest_performance_cache(handle_key);
+    CREATE INDEX IF NOT EXISTS idx_contest_sync_jobs_claim ON contest_sync_jobs(status, available_at, priority, id);
+    CREATE INDEX IF NOT EXISTS idx_contest_sync_jobs_user ON contest_sync_jobs(user_id, status);
     CREATE INDEX IF NOT EXISTS idx_sync_runs_started_at ON sync_runs(started_at);
   `);
 };

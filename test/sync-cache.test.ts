@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import type { CodeforcesClient } from "../src/cf/client.js";
-import { syncState, syncUserStatus } from "../src/cf/sync.js";
+import { runContestSyncQueue, syncState, syncUserStatus } from "../src/cf/sync.js";
 import type { CfContest, CfProblemset, CfRatingChange, CfStandings, CfSubmission } from "../src/cf/types.js";
 import { migrate } from "../src/db/migrate.js";
 
@@ -268,6 +268,8 @@ test("user sync imports standings-only contest problems before writing contest r
   try {
     const client = new FakeClient();
     await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
+    assert.equal(client.standingsCalls, 0);
+    await runContestSyncQueue(db, client as unknown as CodeforcesClient);
     await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
 
     const contestRows = db.prepare("SELECT COUNT(*) AS count FROM user_contest_results").get() as { count: number };
@@ -299,6 +301,7 @@ test("user sync imports standings-only contest problems before writing contest r
   } finally {
     db.close();
     syncState.userRunning.clear();
+    syncState.contestQueueRunning = false;
   }
 });
 
@@ -315,7 +318,12 @@ test("user sync backfills a few older unsynced contests on each refresh", async 
     await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
 
     let contestRows = db.prepare("SELECT COUNT(*) AS count FROM user_contest_results").get() as { count: number };
-    assert.equal(contestRows.count, 33);
+    let queuedRows = db.prepare("SELECT COUNT(*) AS count FROM contest_sync_jobs WHERE status = 'queued'").get() as { count: number };
+    assert.equal(contestRows.count, 35);
+    assert.equal(queuedRows.count, 33);
+    assert.deepEqual(client.standingsCalls, []);
+
+    await runContestSyncQueue(db, client as unknown as CodeforcesClient);
     assert.deepEqual(client.standingsCalls.slice().sort((a, b) => b - a), [
       35, 34, 33, 32, 31, 30, 29, 28, 27, 26,
       25, 24, 23, 22, 21, 20, 19, 18, 17, 16,
@@ -326,7 +334,10 @@ test("user sync backfills a few older unsynced contests on each refresh", async 
     await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
 
     contestRows = db.prepare("SELECT COUNT(*) AS count FROM user_contest_results").get() as { count: number };
+    queuedRows = db.prepare("SELECT COUNT(*) AS count FROM contest_sync_jobs WHERE status = 'queued'").get() as { count: number };
     assert.equal(contestRows.count, 35);
+    assert.equal(queuedRows.count, 2);
+    await runContestSyncQueue(db, client as unknown as CodeforcesClient);
     assert.deepEqual(client.standingsCalls.slice().sort((a, b) => b - a), [
       35, 34, 33, 32, 31, 30, 29, 28, 27, 26,
       25, 24, 23, 22, 21, 20, 19, 18, 17, 16,
@@ -336,10 +347,11 @@ test("user sync backfills a few older unsynced contests on each refresh", async 
   } finally {
     db.close();
     syncState.userRunning.clear();
+    syncState.contestQueueRunning = false;
   }
 });
 
-test("user sync commits problem solved status before contest refresh work", async () => {
+test("user sync commits problem solved status before queued contest refresh work", async () => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
   migrate(db);
@@ -351,22 +363,71 @@ test("user sync commits problem solved status before contest refresh work", asyn
     const client = new FakeClient();
     client.failStandings = true;
 
-    await assert.rejects(
-      syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient),
-      /standings failed/,
-    );
+    await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
+    const originalConsoleError = console.error;
+    console.error = () => undefined;
+    try {
+      await runContestSyncQueue(db, client as unknown as CodeforcesClient);
+    } finally {
+      console.error = originalConsoleError;
+    }
 
     const solvedRows = db.prepare("SELECT COUNT(*) AS count FROM user_problem_status").get() as { count: number };
     const contestRows = db.prepare("SELECT COUNT(*) AS count FROM user_contest_results").get() as { count: number };
+    const contestProblemRows = db.prepare("SELECT COUNT(*) AS count FROM user_contest_problem_results").get() as { count: number };
     const syncRun = db
       .prepare("SELECT status FROM sync_runs WHERE source = 'codeforces:user' ORDER BY id DESC LIMIT 1")
       .get() as { status: string };
+    const job = db
+      .prepare("SELECT status, last_error FROM contest_sync_jobs ORDER BY id DESC LIMIT 1")
+      .get() as { status: string; last_error: string };
 
     assert.equal(solvedRows.count, 2);
-    assert.equal(contestRows.count, 0);
-    assert.equal(syncRun.status, "failed");
+    assert.equal(contestRows.count, 1);
+    assert.equal(contestProblemRows.count, 0);
+    assert.equal(syncRun.status, "success");
+    assert.equal(job.status, "failed");
+    assert.match(job.last_error, /standings failed/);
   } finally {
     db.close();
     syncState.userRunning.clear();
+    syncState.contestQueueRunning = false;
+  }
+});
+
+test("contest queue reclaims stale running jobs after restart", async () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+  insertUser(db);
+  syncState.catalogRunning = false;
+  syncState.userRunning.clear();
+  syncState.contestQueueRunning = false;
+
+  try {
+    const client = new FakeClient();
+    await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
+
+    const staleStartedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    db.prepare(
+      `
+      UPDATE contest_sync_jobs
+      SET status = 'running', attempts = 1, started_at = @startedAt
+    `,
+    ).run({ startedAt: staleStartedAt });
+
+    const processed = await runContestSyncQueue(db, client as unknown as CodeforcesClient);
+    const job = db
+      .prepare("SELECT status, attempts FROM contest_sync_jobs ORDER BY id DESC LIMIT 1")
+      .get() as { status: string; attempts: number };
+    const problemRows = db.prepare("SELECT COUNT(*) AS count FROM user_contest_problem_results").get() as { count: number };
+
+    assert.equal(processed, 1);
+    assert.deepEqual({ ...job }, { status: "done", attempts: 2 });
+    assert.equal(problemRows.count, 3);
+  } finally {
+    db.close();
+    syncState.userRunning.clear();
+    syncState.contestQueueRunning = false;
   }
 });

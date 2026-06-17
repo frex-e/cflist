@@ -25,7 +25,7 @@ import {
 import { contestsPage } from "./views/contests.js";
 import { layout } from "./views/layout.js";
 import { signInPage, signUpPage } from "./views/auth.js";
-import { syncState, syncUserStatus } from "./cf/sync.js";
+import { kickContestSyncQueue, syncState, syncUserStatus } from "./cf/sync.js";
 
 export type AppConfig = {
   publicRoot: string;
@@ -140,9 +140,11 @@ const redirectWithAuthCookies = (authResponse: Response, location: string): Resp
 };
 
 const runSyncInBackground = (db: Db, user: AuthUser): void => {
-  void syncUserStatus(db, user.id, user.cfHandle).catch((error) => {
-    console.error("Codeforces sync failed:", error);
-  });
+  void syncUserStatus(db, user.id, user.cfHandle)
+    .then(() => kickContestSyncQueue(db))
+    .catch((error) => {
+      console.error("Codeforces sync failed:", error);
+    });
 };
 
 export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVariables }> => {
@@ -223,6 +225,7 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
       ok: true,
       catalogSyncRunning: syncState.catalogRunning,
       userSyncRunning: syncState.userRunning.size,
+      contestQueueRunning: syncState.contestQueueRunning,
     });
   });
 

@@ -241,9 +241,11 @@ const ContestRow = ({ row }: { row: ContestResultRow }) => {
       <td class="num"><RatingValue value={row.performance} /></td>
       <td>
         <div class="contest-problems">
-          {row.problems.map((problem) => (
-            <ProblemPill problem={problem} />
-          ))}
+          {row.problems.length
+            ? row.problems.map((problem) => (
+                <ProblemPill problem={problem} />
+              ))
+            : <span class="muted">Details pending</span>}
         </div>
       </td>
     </tr>

@@ -4,7 +4,7 @@ import { createApp } from "./app.js";
 import { openDb } from "./db/connection.js";
 import { migrate } from "./db/migrate.js";
 import { latestSuccessfulSyncAgeMs, problemCount } from "./db/queries.js";
-import { syncCatalog } from "./cf/sync.js";
+import { kickContestSyncQueue, syncCatalog } from "./cf/sync.js";
 
 const db = openDb(config.dbPath);
 migrate(db);
@@ -33,7 +33,9 @@ const maybeSync = (): void => {
 };
 
 maybeSync();
+kickContestSyncQueue(db);
 setInterval(maybeSync, Math.max(1, config.syncIntervalMinutes) * 60 * 1000);
+setInterval(() => kickContestSyncQueue(db), 60 * 1000);
 
 serve(
   {
