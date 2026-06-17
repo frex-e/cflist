@@ -159,7 +159,11 @@ const baseFrom = `
 
 const solvedExpr = "CASE WHEN COALESCE(ups.solved, 0) = 1 OR COALESCE(upo.solved_override, 0) = 1 THEN 1 ELSE 0 END";
 
-const buildWhere = (filters: ProblemFilters): { where: string; params: SqlParams } => {
+const buildWhere = (
+  filters: ProblemFilters,
+  options: { includeSolvedFilter?: boolean } = {},
+): { where: string; params: SqlParams } => {
+  const includeSolvedFilter = options.includeSolvedFilter ?? true;
   const clauses: string[] = [];
   const params: SqlParams = { userId: filters.userId };
 
@@ -186,9 +190,9 @@ const buildWhere = (filters: ProblemFilters): { where: string; params: SqlParams
       params[`division${index}`] = division;
     });
   }
-  if (filters.solved === "solved") {
+  if (includeSolvedFilter && filters.solved === "solved") {
     clauses.push(`${solvedExpr} = 1`);
-  } else if (filters.solved === "unsolved") {
+  } else if (includeSolvedFilter && filters.solved === "unsolved") {
     clauses.push(`${solvedExpr} = 0`);
   }
 
@@ -225,22 +229,80 @@ const buildWhere = (filters: ProblemFilters): { where: string; params: SqlParams
   };
 };
 
-const orderBy = (sort: ProblemFilters["sort"], direction: ProblemFilters["sortDirection"]): string => {
+const orderBy = (
+  sort: ProblemFilters["sort"],
+  direction: ProblemFilters["sortDirection"],
+  alias = "p",
+): string => {
   const dir = direction === "asc" ? "ASC" : "DESC";
-  if (sort === "rating") return `p.rating IS NULL, p.rating ${dir}, p.contest_id DESC, p.problem_index ASC`;
-  if (sort === "solvedCount") return `p.solved_count IS NULL, p.solved_count ${dir}, p.contest_id DESC, p.problem_index ASC`;
-  if (sort === "name") return `p.name COLLATE NOCASE ${dir}, p.contest_id DESC, p.problem_index ASC`;
-  return `p.contest_id ${dir}, p.problem_index ASC`;
+  const column = (name: string): string => alias ? `${alias}.${name}` : name;
+  if (sort === "rating") return `${column("rating")} IS NULL, ${column("rating")} ${dir}, ${column("contest_id")} DESC, ${column("problem_index")} ASC`;
+  if (sort === "solvedCount") return `${column("solved_count")} IS NULL, ${column("solved_count")} ${dir}, ${column("contest_id")} DESC, ${column("problem_index")} ASC`;
+  if (sort === "name") return `${column("name")} COLLATE NOCASE ${dir}, ${column("contest_id")} DESC, ${column("problem_index")} ASC`;
+  return `${column("contest_id")} ${dir}, ${column("problem_index")} ASC`;
 };
 
+const problemIdentityExpr = `
+  p.name
+  || CHAR(31) || COALESCE(CAST(p.rating AS TEXT), '')
+  || CHAR(31) || p.tags_json
+`;
+
+const solvedFilterWhere = (filters: ProblemFilters): string => {
+  if (filters.solved === "solved") return "WHERE p.effective_solved = 1";
+  if (filters.solved === "unsolved") return "WHERE p.effective_solved = 0";
+  return "";
+};
+
+const dedupedProblemsCte = (filters: ProblemFilters, where: string): string => `
+  WITH filtered AS (
+    SELECT
+      p.contest_id,
+      p.problem_index,
+      p.name,
+      p.rating,
+      p.solved_count,
+      p.tags_json,
+      p.url,
+      c.name AS contest_name,
+      c.derived_family,
+      c.derived_division,
+      c.derived_label,
+      CASE WHEN COALESCE(ups.solved, 0) = 1 THEN 1 ELSE 0 END AS row_cf_solved,
+      CASE WHEN COALESCE(upo.solved_override, 0) = 1 THEN 1 ELSE 0 END AS row_solved_override,
+      ${solvedExpr} AS row_effective_solved,
+      ${problemIdentityExpr} AS problem_identity
+    ${baseFrom}
+    ${where}
+  ),
+  ranked AS (
+    SELECT
+      *,
+      MAX(row_cf_solved) OVER (PARTITION BY problem_identity) AS cf_solved,
+      MAX(row_solved_override) OVER (PARTITION BY problem_identity) AS solved_override,
+      MAX(row_effective_solved) OVER (PARTITION BY problem_identity) AS effective_solved,
+      ROW_NUMBER() OVER (
+        PARTITION BY problem_identity
+        ORDER BY ${orderBy(filters.sort, filters.sortDirection, "")}
+      ) AS duplicate_rank
+    FROM filtered
+  ),
+  deduped AS (
+    SELECT * FROM ranked WHERE duplicate_rank = 1
+  )
+`;
+
 export const listProblems = (db: Db, filters: ProblemFilters): ListResult => {
-  const { where, params } = buildWhere(filters);
+  const { where, params } = buildWhere(filters, { includeSolvedFilter: false });
   const offset = (filters.page - 1) * filters.pageSize;
   const paging = { limit: filters.pageSize, offset };
+  const dedupedCte = dedupedProblemsCte(filters, where);
+  const dedupedWhere = solvedFilterWhere(filters);
 
   const rows = db
     .prepare(
       `
+      ${dedupedCte}
       SELECT
         p.contest_id,
         p.problem_index,
@@ -249,15 +311,15 @@ export const listProblems = (db: Db, filters: ProblemFilters): ListResult => {
         p.solved_count,
         p.tags_json,
         p.url,
-        c.name AS contest_name,
-        c.derived_family,
-        c.derived_division,
-        c.derived_label,
-        ups.solved AS cf_solved,
-        upo.solved_override,
-        ${solvedExpr} AS effective_solved
-      ${baseFrom}
-      ${where}
+        p.contest_name,
+        p.derived_family,
+        p.derived_division,
+        p.derived_label,
+        p.cf_solved,
+        p.solved_override,
+        p.effective_solved
+      FROM deduped p
+      ${dedupedWhere}
       ORDER BY ${orderBy(filters.sort, filters.sortDirection)}
       LIMIT @limit OFFSET @offset
     `,
@@ -267,12 +329,13 @@ export const listProblems = (db: Db, filters: ProblemFilters): ListResult => {
   const summary = db
     .prepare(
       `
+      ${dedupedCte}
       SELECT
         COUNT(*) AS total,
-        SUM(CASE WHEN ${solvedExpr} = 1 THEN 1 ELSE 0 END) AS solved,
-        SUM(CASE WHEN ${solvedExpr} = 0 THEN 1 ELSE 0 END) AS unsolved
-      ${baseFrom}
-      ${where}
+        SUM(CASE WHEN p.effective_solved = 1 THEN 1 ELSE 0 END) AS solved,
+        SUM(CASE WHEN p.effective_solved = 0 THEN 1 ELSE 0 END) AS unsolved
+      FROM deduped p
+      ${dedupedWhere}
     `,
     )
     .get(params) as { total: number; solved: number | null; unsolved: number | null };

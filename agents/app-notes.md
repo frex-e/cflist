@@ -52,6 +52,7 @@ Important constraints:
 - Division and tag filters are checkbox lists.
 - Rating filter uses sliders backed by hidden `minRating` / `maxRating` fields.
 - Problem id/name links go directly to the contest-scoped Codeforces problem page; there is no local problem detail page.
+- `/problems` de-duplicates shared contest aliases by problem metadata after applying filters, and aggregates solved state across the visible alias group. Contest history still preserves contest-specific problem indices.
 - `/contests` shows recent synced contest rows with rank, score, rating delta, estimated performance, and per-problem solve/upsolve pills.
 - Bare `/problems` applies the signed-in user's saved default filters from SQLite when one is set. Explicit query params still win.
 - Problem solved toggles use normal forms with JS enhancement:
