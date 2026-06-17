@@ -60,6 +60,9 @@ Important constraints:
 - Problem filters use normal GET forms with JS enhancement:
   - without JS: form submission and pager links reload `/problems`
   - with HTMX: filter changes fetch `/problems/fragment`, swap the table, and update the canonical URL
+- `/problems?default=0` bypasses saved default filters; the Reset link uses it so an existing saved default can be overwritten or cleared.
+- `Set default` posts the current filter form to `/preferences/default-filters`; JS keeps the user on the page with inline status, while normal form posts redirect back to `/problems`.
+- Default filter saves must parse repeated form fields with `parseBody({ all: true })` so multi-select checkbox groups such as `division` and `tags` are preserved.
 - Rating slider changes update hidden GET fields and trigger the HTMX filter refresh automatically.
 - Tag mode defaults to `any`; `tagMode=all` is only included in URLs when explicitly selected.
 - Sort direction is URL-backed through `sortDirection=asc|desc` and rendered as an asc/desc toggle button.

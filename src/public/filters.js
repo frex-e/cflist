@@ -130,6 +130,7 @@
       if (!defaultForm) return;
 
       event.preventDefault();
+      event.stopPropagation();
       const status = defaultForm.querySelector("[data-filter-default-status]");
       const body = canonicalFilterParams(defaultForm);
       if (status) status.textContent = "Saving...";

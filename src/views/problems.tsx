@@ -213,11 +213,21 @@ const FilterForm = ({ filters, options }: ProblemsPageOptions) => {
         </noscript>
         <a
           class="button secondary"
-          href="/problems"
+          href="/problems?default=0"
         >
           Reset
         </a>
-        <button class="button secondary" type="button" data-filter-save-default>
+        <button
+          class="button secondary"
+          type="submit"
+          formmethod="post"
+          formaction="/preferences/default-filters"
+          hx-post="/preferences/default-filters"
+          hx-include="closest form"
+          hx-push-url="false"
+          hx-swap="none"
+          data-filter-save-default
+        >
           Set default
         </button>
         <span class="filter-action-status" data-filter-default-status aria-live="polite"></span>

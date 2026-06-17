@@ -40,7 +40,7 @@ type AppVariables = {
 };
 
 type AppContext = Context<{ Variables: AppVariables }>;
-type FormValue = string | File | string[];
+type FormValue = string | File | (string | File)[];
 
 const firstString = (value: FormValue | undefined): string => {
   if (Array.isArray(value)) return typeof value[0] === "string" ? value[0] : "";
@@ -81,6 +81,7 @@ const formToBody = (form: Record<string, FormValue>, keys: string[]): URLSearchP
 
 const defaultFilterParams = (db: Db, userId: string, requestUrl: string): URLSearchParams | undefined => {
   const url = new URL(requestUrl);
+  if (url.searchParams.get("default") === "0") return url.searchParams;
   if (url.search) return undefined;
 
   const query = getDefaultFilterQuery(db, userId);
@@ -172,7 +173,7 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
 
   const proxyAuthForm = async (
     c: AppContext,
-    endpoint: "sign-in/email" | "sign-up/email" | "sign-out",
+    endpoint: "sign-in/email" | "sign-up/email",
     body: URLSearchParams,
   ): Promise<Response> => {
     const url = new URL(`/api/auth/${endpoint}`, c.req.url);
@@ -188,6 +189,20 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
         method: "POST",
         headers,
         body,
+      }),
+    );
+  };
+
+  const proxyAuthSignOut = async (c: AppContext): Promise<Response> => {
+    const url = new URL("/api/auth/sign-out", c.req.url);
+    const headers = new Headers({ origin: url.origin });
+    const cookie = c.req.header("cookie");
+    if (cookie) headers.set("cookie", cookie);
+
+    return auth.handler(
+      new Request(url, {
+        method: "POST",
+        headers,
       }),
     );
   };
@@ -246,7 +261,7 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
   });
 
   app.post("/sign-out", async (c) => {
-    const response = await proxyAuthForm(c, "sign-out", new URLSearchParams());
+    const response = await proxyAuthSignOut(c);
     return redirectWithAuthCookies(response, "/sign-in");
   });
 
@@ -337,11 +352,12 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
     const user = requireUser(c);
     if (user instanceof Response) return user;
 
-    const form = await c.req.parseBody();
+    const form = await c.req.parseBody({ all: true });
     const filters = normalizeFilters(formToSearchParams(form), user.id, user.cfHandle);
     const query = problemListQuery(filters);
 
     setDefaultFilterQuery(db, user.id, query);
+    if (!isHtmx(c) && c.req.header("accept")?.includes("text/html")) return c.redirect("/problems");
     return c.text("Default saved");
   });
 

@@ -21,6 +21,20 @@ const seedProblem = (db: DatabaseSync): void => {
 
   db.prepare(
     `
+    INSERT INTO contests (
+      id,
+      name,
+      derived_family,
+      derived_division,
+      derived_label,
+      raw_json,
+      updated_at
+    ) VALUES (2, 'Codeforces Round 2 (Div. 3)', 'Codeforces Round', 'Div. 3', 'Codeforces Round (Div. 3)', '{}', '2026-01-01T00:00:00.000Z')
+  `,
+  ).run();
+
+  db.prepare(
+    `
     INSERT INTO problems (
       contest_id,
       problem_index,
@@ -137,6 +151,146 @@ test("bare problems page uses saved default filters when no query params are pre
     assert.equal(defaultResponse.status, 200);
     assert.match(defaultHtml, /<option value="unsolved" selected="">Unsolved<\/option>/);
     assert.match(explicitHtml, /<option value="all" selected="">All<\/option>/);
+  });
+});
+
+test("default filter save works as a normal form post", async () => {
+  await withSeededApp(async (app) => {
+    const authCookie = await signUp(app);
+    const formPage = await app.request("/problems?solved=unsolved", {
+      headers: { cookie: authCookie },
+    });
+    const formHtml = await formPage.text();
+
+    assert.equal(formPage.status, 200);
+    assert.match(formHtml, /formmethod="post"/);
+    assert.match(formHtml, /formaction="\/preferences\/default-filters"/);
+    assert.match(formHtml, /hx-push-url="false"/);
+
+    const saveResponse = await app.request("/preferences/default-filters", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        accept: "text/html",
+        cookie: authCookie,
+      },
+      body: new URLSearchParams({ solved: "unsolved" }).toString(),
+    });
+
+    assert.equal(saveResponse.status, 302);
+    assert.equal(saveResponse.headers.get("location"), "/problems");
+
+    const defaultResponse = await app.request("/problems", {
+      headers: { cookie: authCookie },
+    });
+    const defaultHtml = await defaultResponse.text();
+
+    assert.equal(defaultResponse.status, 200);
+    assert.match(defaultHtml, /<option value="unsolved" selected="">Unsolved<\/option>/);
+  });
+});
+
+test("default filter save overwrites an existing default", async () => {
+  await withSeededApp(async (app) => {
+    const authCookie = await signUp(app);
+
+    const firstSave = await app.request("/preferences/default-filters", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        cookie: authCookie,
+      },
+      body: new URLSearchParams({ solved: "unsolved" }).toString(),
+    });
+    assert.equal(firstSave.status, 200);
+
+    const overwrite = await app.request("/preferences/default-filters", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        cookie: authCookie,
+      },
+      body: new URLSearchParams({ solved: "solved" }).toString(),
+    });
+    assert.equal(overwrite.status, 200);
+
+    const defaultResponse = await app.request("/problems", {
+      headers: { cookie: authCookie },
+    });
+    const defaultHtml = await defaultResponse.text();
+
+    assert.equal(defaultResponse.status, 200);
+    assert.match(defaultHtml, /<option value="solved" selected="">Solved<\/option>/);
+    assert.doesNotMatch(defaultHtml, /<option value="unsolved" selected="">Unsolved<\/option>/);
+  });
+});
+
+test("default filter save preserves multiple selected divisions", async () => {
+  await withSeededApp(async (app) => {
+    const authCookie = await signUp(app);
+    const saveResponse = await app.request("/preferences/default-filters", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        cookie: authCookie,
+      },
+      body: new URLSearchParams([
+        ["division", "Div. 2"],
+        ["division", "Div. 3"],
+      ]).toString(),
+    });
+    assert.equal(saveResponse.status, 200);
+
+    const defaultResponse = await app.request("/problems", {
+      headers: { cookie: authCookie },
+    });
+    const defaultHtml = await defaultResponse.text();
+
+    assert.equal(defaultResponse.status, 200);
+    assert.match(defaultHtml, /name="division" value="Div\. 2" checked=""/);
+    assert.match(defaultHtml, /name="division" value="Div\. 3" checked=""/);
+  });
+});
+
+test("reset bypasses saved defaults so they can be cleared", async () => {
+  await withSeededApp(async (app) => {
+    const authCookie = await signUp(app);
+    const saveResponse = await app.request("/preferences/default-filters", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        cookie: authCookie,
+      },
+      body: new URLSearchParams({ solved: "unsolved" }).toString(),
+    });
+    assert.equal(saveResponse.status, 200);
+
+    const resetResponse = await app.request("/problems?default=0", {
+      headers: { cookie: authCookie },
+    });
+    const resetHtml = await resetResponse.text();
+
+    assert.equal(resetResponse.status, 200);
+    assert.match(resetHtml, /href="\/problems\?default=0"/);
+    assert.match(resetHtml, /<option value="all" selected="">All<\/option>/);
+
+    const clearResponse = await app.request("/preferences/default-filters", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        cookie: authCookie,
+      },
+      body: new URLSearchParams().toString(),
+    });
+    assert.equal(clearResponse.status, 200);
+
+    const defaultResponse = await app.request("/problems", {
+      headers: { cookie: authCookie },
+    });
+    const defaultHtml = await defaultResponse.text();
+
+    assert.equal(defaultResponse.status, 200);
+    assert.match(defaultHtml, /<option value="all" selected="">All<\/option>/);
   });
 });
 
