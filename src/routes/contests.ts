@@ -6,6 +6,7 @@ import type { ContestResultRow } from "../db/queries.js";
 import type { ContestSyncJobRow } from "../db/queries.js";
 import { buildSyncPanelOptions } from "../http/sync-panel.js";
 import { contestsPage, contestsTableFragment } from "../views/contests.js";
+import { filterContestTableRows, parseContestTableFilters } from "../views/contests/filters.js";
 
 type AppVariables = {
   user: AuthUser | null;
@@ -39,15 +40,18 @@ const hydrationFromJob = (job: ContestSyncJobRow | undefined): Pick<ContestResul
   return {};
 };
 
-const contestsOptionsFor = (db: Db, user: AuthUser, autoSyncStarted = false) => {
+const contestsOptionsFor = (db: Db, user: AuthUser, searchParams: URLSearchParams, autoSyncStarted = false) => {
   const jobs = getContestSyncJobsByContest(db, user.id);
   const rows = listUserContestResults(db, user.id).map((row) => ({
     ...row,
     ...hydrationFromJob(jobs.get(row.contest_id)),
   }));
+  const filters = parseContestTableFilters(searchParams);
 
   return {
     rows,
+    tableRows: filterContestTableRows(rows, filters),
+    filters,
     syncPanel: buildSyncPanelOptions(db, user, "/contests", "contests", undefined, autoSyncStarted),
     user,
   };
@@ -64,13 +68,15 @@ export const registerContestsRoutes = (
     if (user instanceof Response) return user;
     const autoSyncStarted = maybeStartInitialSync(user);
 
-    return c.html(contestsPage(contestsOptionsFor(db, user, autoSyncStarted)));
+    const searchParams = new URL(c.req.url).searchParams;
+    return c.html(contestsPage(contestsOptionsFor(db, user, searchParams, autoSyncStarted)));
   });
 
   app.get("/contests/fragment", (c) => {
     const user = requireUser(c);
     if (user instanceof Response) return user;
 
-    return c.html(contestsTableFragment(contestsOptionsFor(db, user)));
+    const searchParams = new URL(c.req.url).searchParams;
+    return c.html(contestsTableFragment(contestsOptionsFor(db, user, searchParams)));
   });
 };

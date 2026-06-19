@@ -168,5 +168,61 @@ test("contests page renders rating, performance, and problem outcome pills", asy
     assert.match(html, /contest-problem-pill contest-solved/);
     assert.match(html, /contest-problem-pill upsolved/);
     assert.match(html, /contest-problem-pill unsolved/);
+    assert.match(html, /data-contest-filter="unrated"/);
+    assert.match(html, /data-contest-filter="upsolve"/);
+  });
+});
+
+test("contests page filters hide unrated and upsolve-only rows", async () => {
+  await withApp(async (app, db) => {
+    const cookie = await signUp(app, db);
+    const user = db.prepare(`SELECT id FROM "user" WHERE email = 'user@example.com'`).get() as { id: string };
+
+    db.prepare(
+      `
+      INSERT INTO user_contest_results (
+        user_id,
+        cf_handle,
+        contest_id,
+        rank,
+        points,
+        penalty,
+        participant_type,
+        old_rating,
+        new_rating,
+        rating_delta,
+        performance,
+        last_checked_at
+      ) VALUES (@userId, 'inj', 1100, 42, 3, 180, 'CONTESTANT', 1900, 1950, 50, 2075, '2026-01-01T00:00:00.000Z')
+    `,
+    ).run({ userId: user.id });
+
+    db.prepare(
+      `
+      INSERT INTO user_contest_results (
+        user_id,
+        cf_handle,
+        contest_id,
+        rank,
+        points,
+        penalty,
+        participant_type,
+        old_rating,
+        new_rating,
+        rating_delta,
+        performance,
+        last_checked_at
+      ) VALUES (@userId, 'inj', 1099, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-01-01T00:00:00.000Z')
+    `,
+    ).run({ userId: user.id });
+
+    const response = await app.request("/contests?hideUnrated=1&hideUpsolve=1", { headers: { cookie } });
+    const html = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.match(html, /Codeforces Round 1100 \(Div\. 2\)/);
+    assert.doesNotMatch(html, /Codeforces Round 1099 \(Div\. 2\)/);
+    assert.match(html, /Contest history \(1 of 2\)/);
+    assert.match(html, /aria-pressed="true"/);
   });
 });

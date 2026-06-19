@@ -16,9 +16,15 @@ import {
   yForValue,
   yearTicks,
 } from "./contests/chart.js";
+import {
+  type ContestTableFilters,
+  filterContestTableRows,
+} from "./contests/filters.js";
 
 type ContestsPageOptions = {
   rows: ContestResultRow[];
+  tableRows: ContestResultRow[];
+  filters: ContestTableFilters;
   syncPanel: SyncPanelOptions;
   user: AuthUser;
 };
@@ -203,11 +209,23 @@ const ContestRow = ({ row }: { row: ContestResultRow }) => {
   );
 };
 
-const ContestsTableBody = ({ rows }: { rows: ContestResultRow[] }) => {
+const ContestsTableBody = ({
+  rows,
+  filters,
+  hasRows,
+}: {
+  rows: ContestResultRow[];
+  filters: ContestTableFilters;
+  hasRows: boolean;
+}) => {
   if (!rows.length) {
+    const message = hasRows && (filters.hideUnrated || filters.hideUpsolveOnly)
+      ? "No contests match the current filters."
+      : "Run a sync to fetch recent contest history.";
+
     return (
       <tr>
-        <td class="empty" colspan={8}>Run a sync to fetch recent contest history.</td>
+        <td class="empty" colspan={8}>{message}</td>
       </tr>
     );
   }
@@ -215,10 +233,45 @@ const ContestsTableBody = ({ rows }: { rows: ContestResultRow[] }) => {
   return <>{rows.map((row) => <ContestRow row={row} />)}</>;
 };
 
-const ContestsTableSection = ({ rows }: { rows: ContestResultRow[] }) => (
+const ContestFilterButtons = ({ filters }: { filters: ContestTableFilters }) => (
+  <div class="contest-filters">
+    <button
+      type="button"
+      class="button secondary contest-filter-btn"
+      data-contest-filter="unrated"
+      aria-pressed={filters.hideUnrated ? "true" : "false"}
+      title={filters.hideUnrated ? "Showing rated contests only" : "Hide unrated contests"}
+    >
+      Unrated
+    </button>
+    <button
+      type="button"
+      class="button secondary contest-filter-btn"
+      data-contest-filter="upsolve"
+      aria-pressed={filters.hideUpsolveOnly ? "true" : "false"}
+      title={filters.hideUpsolveOnly ? "Showing participated contests only" : "Hide upsolve-only contests"}
+    >
+      Upsolve only
+    </button>
+  </div>
+);
+
+const contestHistoryLabel = (tableRows: ContestResultRow[], totalRows: number): string => {
+  if (tableRows.length === totalRows) return "Contest history";
+  return `Contest history (${formatNumber(tableRows.length)} of ${formatNumber(totalRows)})`;
+};
+
+const ContestsTableSection = ({ rows, tableRows, filters }: {
+  rows: ContestResultRow[];
+  tableRows: ContestResultRow[];
+  filters: ContestTableFilters;
+}) => (
   <section id="contests-table" class="table-wrap" data-contests-table>
     <div class="table-head">
-      <p>Contest history</p>
+      <div class="table-head-main">
+        <p>{contestHistoryLabel(tableRows, rows.length)}</p>
+        <ContestFilterButtons filters={filters} />
+      </div>
       <div class="contest-legend">
         <span><i class="contest-problem-pill contest-solved">A</i> solved</span>
         <span><i class="contest-problem-pill upsolved">B</i> upsolved</span>
@@ -239,14 +292,14 @@ const ContestsTableSection = ({ rows }: { rows: ContestResultRow[] }) => (
         </tr>
       </thead>
       <tbody>
-        <ContestsTableBody rows={rows} />
+        <ContestsTableBody rows={tableRows} filters={filters} hasRows={rows.length > 0} />
       </tbody>
     </table>
   </section>
 );
 
 export const contestsTableFragment = (options: ContestsPageOptions): string => {
-  return render(<ContestsTableSection rows={options.rows} />);
+  return render(<ContestsTableSection rows={options.rows} tableRows={options.tableRows} filters={options.filters} />);
 };
 
 export const contestsPage = (options: ContestsPageOptions): string => {
@@ -260,6 +313,7 @@ export const contestsPage = (options: ContestsPageOptions): string => {
     user: options.user,
     activeNav: "contests",
     requiresJs: true,
+    scripts: ["/public/contests.js"],
     body: (
       <>
         <PageHero
@@ -271,7 +325,7 @@ export const contestsPage = (options: ContestsPageOptions): string => {
           <RatingChart rows={options.rows} metric="new_rating" scale={scale} title="Rating" />
           <RatingChart rows={options.rows} metric="performance" scale={scale} title="Performance" />
         </section>
-        <ContestsTableSection rows={options.rows} />
+        <ContestsTableSection rows={options.rows} tableRows={options.tableRows} filters={options.filters} />
       </>
     ),
   });

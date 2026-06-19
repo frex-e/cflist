@@ -30,6 +30,8 @@ Server-rendered Hono TSX views under `src/views/`. `filters.js` loads only on `/
 
 `/contests` shows recent synced contest rows with rank, score, rating delta, estimated performance, and per-problem solve/upsolve pills.
 
+- Table filter toggles hide unrated rows (`new_rating` is null) and upsolve-only rows (blank rank/score). Filters are URL-backed via `hideUnrated=1` and `hideUpsolve=1`; charts still use the full synced set.
+
 ## Sync panel
 
 - Shared `SyncPanel` on Problems and Contests; `POST /admin/sync` starts background sync and returns panel HTML.

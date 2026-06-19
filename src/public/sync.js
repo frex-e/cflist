@@ -12,7 +12,7 @@
 
   const refreshContests = () => {
     if (!document.querySelector("#contests-table")) return;
-    window.htmx.ajax("GET", "/contests/fragment", {
+    window.htmx.ajax("GET", `/contests/fragment${window.location.search}`, {
       target: "#contests-table",
       swap: "outerHTML",
     });

@@ -972,6 +972,38 @@ td.tags {
   font-weight: 650;
 }
 
+.table-head-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.contest-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.contest-filter-btn {
+  min-height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.contest-filter-btn[aria-pressed="true"] {
+  background: var(--text);
+  border-color: var(--text);
+  color: #ffffff;
+}
+
+.contest-filter-btn[aria-pressed="true"]:hover {
+  background: #333333;
+  border-color: #333333;
+}
+
 .contest-problems,
 .contest-legend {
   display: flex;
