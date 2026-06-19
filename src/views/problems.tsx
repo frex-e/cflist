@@ -6,8 +6,9 @@ import { PageHero } from "./page-hero.js";
 import { ratingTitle } from "./rating.js";
 import { render } from "./render.js";
 import { SyncPanel } from "./sync-panel.js";
+import { LoadMore } from "./load-more.js";
+import { rangeLabel } from "./pagination.js";
 import {
-  fragmentUrl,
   pageNav,
   problemListUrl,
   type ProblemsPageOptions,
@@ -293,44 +294,6 @@ const FilterForm = ({ filters, options }: ProblemsPageOptions) => {
 
 const SyncPanelAside = (options: ProblemsPageOptions) => <SyncPanel {...options.syncPanel} />;
 
-const SyncPromptBanner = (options: ProblemsPageOptions) => {
-  if (options.syncPanel.hasSuccessfulSync) return null;
-
-  return (
-    <section class="sync-prompt-banner" aria-label="Initial sync">
-      <p>Sync your Codeforces account to load solved status and contest history.</p>
-      <form
-        method="post"
-        action="/admin/sync"
-        hx-post="/admin/sync"
-        hx-target="[data-sync-panel]"
-        hx-swap="outerHTML"
-      >
-        <input type="hidden" name="returnTo" value={problemListUrl(options.filters, options.filters.page)} />
-        <input type="hidden" name="refreshPage" value="problems" />
-        <button type="submit" class="button">Sync now</button>
-      </form>
-    </section>
-  );
-};
-
-const LoadMore = ({ next }: { next: string }) => {
-  return (
-    <div
-      id="load-more"
-      class="load-more"
-      data-load-more
-      hidden={!next}
-      hx-get={next ? fragmentUrl(next, { append: "1" }) : undefined}
-      hx-trigger={next ? "revealed" : undefined}
-      hx-target={next ? "this" : undefined}
-      hx-swap={next ? "outerHTML" : undefined}
-    >
-      <span>Loading more problems...</span>
-    </div>
-  );
-};
-
 const ProblemRows = (props: ProblemsPageOptions) => {
   const { result, filters } = props;
 
@@ -353,17 +316,6 @@ const ProblemRows = (props: ProblemsPageOptions) => {
   );
 };
 
-const rangeLabel = (filters: ProblemsPageOptions["filters"], total: number, append = false): string => {
-  if (total === 0) return "Showing 0 of 0";
-  if (append) {
-    const cumulativeEnd = Math.min(filters.page * filters.pageSize, total);
-    return `Showing 1-${formatNumber(cumulativeEnd)} of ${formatNumber(total)}`;
-  }
-  const start = (filters.page - 1) * filters.pageSize + 1;
-  const end = Math.min(filters.page * filters.pageSize, total);
-  return `Showing ${formatNumber(start)}-${formatNumber(end)} of ${formatNumber(total)}`;
-};
-
 const ProblemsListFragment = (options: ProblemsPageOptions) => {
   const { result, filters } = options;
   const nav = pageNav(filters, result.total);
@@ -372,7 +324,7 @@ const ProblemsListFragment = (options: ProblemsPageOptions) => {
     <section id="problem-list" class="table-wrap">
       <div class="table-head">
         <span id="problem-page-label" data-page-label>
-          {rangeLabel(filters, result.total)}
+          {rangeLabel(filters.page, filters.pageSize, result.total)}
         </span>
       </div>
       <table>
@@ -391,7 +343,7 @@ const ProblemsListFragment = (options: ProblemsPageOptions) => {
           <ProblemRows {...options} />
         </tbody>
       </table>
-      <LoadMore next={nav.next} />
+      <LoadMore next={nav.next} fragmentPath="/problems/fragment" label="Loading more problems..." />
     </section>
   );
 };
@@ -411,12 +363,12 @@ export const problemsAppendFragment = (options: ProblemsPageOptions): string => 
         </tbody>
       </template>
       <span id="problem-page-label" data-page-label hx-swap-oob="true">
-        {rangeLabel(filters, result.total, true)}
+        {rangeLabel(filters.page, filters.pageSize, result.total, true)}
       </span>
       <p id="problem-summary" data-problem-summary hx-swap-oob="true">
         {problemSummaryText(options)}
       </p>
-      <LoadMore next={nav.next} />
+      <LoadMore next={nav.next} fragmentPath="/problems/fragment" label="Loading more problems..." />
     </>,
   );
 };
@@ -435,7 +387,6 @@ export const problemsPage = (options: ProblemsPageOptions): string => {
           subtitle={<p id="problem-summary" data-problem-summary>{problemSummaryText(options)}</p>}
           aside={<SyncPanelAside {...options} />}
         />
-        <SyncPromptBanner {...options} />
         <div class="workspace">
           <FilterForm {...options} />
           <ProblemsListFragment {...options} />

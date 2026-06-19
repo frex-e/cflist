@@ -1,9 +1,10 @@
-import type { Child } from "hono/jsx";
 import type { AuthUser } from "../auth.js";
-import type { ContestProblemResultRow, ContestResultRow } from "../db/queries.js";
+import type { ContestListResult, ContestProblemResultRow, ContestResultRow } from "../db/queries.js";
 import { formatDateFromSeconds, formatNumber } from "./html.js";
 import { layout } from "./layout.js";
+import { LoadMore } from "./load-more.js";
 import { PageHero } from "./page-hero.js";
+import { rangeLabel } from "./pagination.js";
 import { CHART_THRESHOLDS, chartBands, ratingTitle } from "./rating.js";
 import { render } from "./render.js";
 import { SyncPanel, type SyncPanelOptions } from "./sync-panel.js";
@@ -16,14 +17,13 @@ import {
   yForValue,
   yearTicks,
 } from "./contests/chart.js";
-import {
-  type ContestTableFilters,
-  filterContestTableRows,
-} from "./contests/filters.js";
+import { type ContestTableFilters } from "./contests/filters.js";
+import { contestPageNav } from "./contests/url.js";
 
-type ContestsPageOptions = {
-  rows: ContestResultRow[];
-  tableRows: ContestResultRow[];
+export type ContestsPageOptions = {
+  chartRows: ContestResultRow[];
+  syncedCount: number;
+  tableResult: ContestListResult;
   filters: ContestTableFilters;
   syncPanel: SyncPanelOptions;
   user: AuthUser;
@@ -212,15 +212,15 @@ const ContestRow = ({ row }: { row: ContestResultRow }) => {
 const ContestsTableBody = ({
   rows,
   filters,
-  hasRows,
+  hasSyncedContests,
 }: {
   rows: ContestResultRow[];
   filters: ContestTableFilters;
-  hasRows: boolean;
+  hasSyncedContests: boolean;
 }) => {
   if (!rows.length) {
-    const message = hasRows && (filters.hideUnrated || filters.hideUpsolveOnly)
-      ? "No contests match the current filters."
+    const message = hasSyncedContests && filters.show !== "all"
+      ? "No contests match the current filter."
       : "Run a sync to fetch recent contest history.";
 
     return (
@@ -233,79 +233,106 @@ const ContestsTableBody = ({
   return <>{rows.map((row) => <ContestRow row={row} />)}</>;
 };
 
+const CONTEST_SHOW_OPTIONS: { mode: ContestTableFilters["show"]; label: string; title: string }[] = [
+  { mode: "all", label: "All", title: "Show every synced contest" },
+  { mode: "participated", label: "Participated", title: "Hide upsolve-only contests" },
+  { mode: "rated", label: "Rated", title: "Show only contests that changed your rating" },
+];
+
 const ContestFilterButtons = ({ filters }: { filters: ContestTableFilters }) => (
-  <div class="contest-filters">
-    <button
-      type="button"
-      class="button secondary contest-filter-btn"
-      data-contest-filter="unrated"
-      aria-pressed={filters.hideUnrated ? "true" : "false"}
-      title={filters.hideUnrated ? "Showing rated contests only" : "Hide unrated contests"}
-    >
-      Unrated
-    </button>
-    <button
-      type="button"
-      class="button secondary contest-filter-btn"
-      data-contest-filter="upsolve"
-      aria-pressed={filters.hideUpsolveOnly ? "true" : "false"}
-      title={filters.hideUpsolveOnly ? "Showing participated contests only" : "Hide upsolve-only contests"}
-    >
-      Upsolve only
-    </button>
+  <div class="contest-filters" role="group" aria-label="Contest table filter">
+    <div class="contest-filter-group">
+      {CONTEST_SHOW_OPTIONS.map((option) => (
+        <button
+          type="button"
+          class="button secondary contest-filter-btn"
+          data-contest-show={option.mode}
+          aria-pressed={filters.show === option.mode ? "true" : "false"}
+          title={option.title}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
   </div>
 );
 
-const contestHistoryLabel = (tableRows: ContestResultRow[], totalRows: number): string => {
-  if (tableRows.length === totalRows) return "Contest history";
-  return `Contest history (${formatNumber(tableRows.length)} of ${formatNumber(totalRows)})`;
+const ContestsTableSection = ({ options }: { options: ContestsPageOptions }) => {
+  const { tableResult, filters, syncedCount } = options;
+  const nav = contestPageNav(filters, tableResult.total);
+
+  return (
+    <section id="contests-table" class="table-wrap" data-contests-table>
+      <div class="table-head table-head-contests">
+        <div class="table-head-left">
+          <p class="table-head-title">Contest history</p>
+          <span id="contest-page-label" class="table-head-meta" data-page-label>
+            {rangeLabel(filters.page, filters.pageSize, tableResult.total)}
+          </span>
+        </div>
+        <ContestFilterButtons filters={filters} />
+        <div class="contest-legend">
+          <span><i class="contest-problem-pill contest-solved">A</i> solved</span>
+          <span><i class="contest-problem-pill upsolved">B</i> upsolved</span>
+          <span><i class="contest-problem-pill unsolved">C</i> unsolved</span>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Contest</th>
+            <th class="num">Rank</th>
+            <th class="num">Score</th>
+            <th class="num">Rating</th>
+            <th class="num">Delta</th>
+            <th class="num">Perf</th>
+            <th>Problems</th>
+          </tr>
+        </thead>
+        <tbody id="contest-rows" data-contest-rows>
+          <ContestsTableBody
+            rows={tableResult.rows}
+            filters={filters}
+            hasSyncedContests={syncedCount > 0}
+          />
+        </tbody>
+      </table>
+      <LoadMore next={nav.next} fragmentPath="/contests/fragment" label="Loading more contests..." />
+    </section>
+  );
 };
 
-const ContestsTableSection = ({ rows, tableRows, filters }: {
-  rows: ContestResultRow[];
-  tableRows: ContestResultRow[];
-  filters: ContestTableFilters;
-}) => (
-  <section id="contests-table" class="table-wrap" data-contests-table>
-    <div class="table-head">
-      <div class="table-head-main">
-        <p>{contestHistoryLabel(tableRows, rows.length)}</p>
-        <ContestFilterButtons filters={filters} />
-      </div>
-      <div class="contest-legend">
-        <span><i class="contest-problem-pill contest-solved">A</i> solved</span>
-        <span><i class="contest-problem-pill upsolved">B</i> upsolved</span>
-        <span><i class="contest-problem-pill unsolved">C</i> unsolved</span>
-      </div>
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th>Date</th>
-          <th>Contest</th>
-          <th class="num">Rank</th>
-          <th class="num">Score</th>
-          <th class="num">Rating</th>
-          <th class="num">Delta</th>
-          <th class="num">Perf</th>
-          <th>Problems</th>
-        </tr>
-      </thead>
-      <tbody>
-        <ContestsTableBody rows={tableRows} filters={filters} hasRows={rows.length > 0} />
-      </tbody>
-    </table>
-  </section>
-);
+export const contestsTableFragment = (options: ContestsPageOptions): string =>
+  render(<ContestsTableSection options={options} />);
 
-export const contestsTableFragment = (options: ContestsPageOptions): string => {
-  return render(<ContestsTableSection rows={options.rows} tableRows={options.tableRows} filters={options.filters} />);
+export const contestsAppendFragment = (options: ContestsPageOptions): string => {
+  const { tableResult, filters } = options;
+  const nav = contestPageNav(filters, tableResult.total);
+  const rows = tableResult.rows.map((row) => <ContestRow row={row} />);
+
+  return render(
+    <>
+      <template>
+        <tbody id="contest-rows" hx-swap-oob="beforeend:#contest-rows">
+          {rows}
+        </tbody>
+      </template>
+      <span id="contest-page-label" data-page-label hx-swap-oob="true">
+        {rangeLabel(filters.page, filters.pageSize, tableResult.total, true)}
+      </span>
+      <LoadMore next={nav.next} fragmentPath="/contests/fragment" label="Loading more contests..." />
+    </>,
+  );
 };
 
 export const contestsPage = (options: ContestsPageOptions): string => {
-  const scale = chartScale(options.rows);
-  const subtitle = options.rows.length
-    ? `${formatNumber(options.rows.length)} recent contests for ${options.user.cfHandle}`
+  const scale = chartScale(options.chartRows);
+  const ratedCount = options.chartRows.length;
+  const subtitle = options.syncedCount
+    ? ratedCount
+      ? `${formatNumber(options.syncedCount)} synced contests (${formatNumber(ratedCount)} rated) for ${options.user.cfHandle}`
+      : `${formatNumber(options.syncedCount)} synced contests for ${options.user.cfHandle}`
     : `No synced contests for ${options.user.cfHandle}`;
 
   return layout({
@@ -322,10 +349,10 @@ export const contestsPage = (options: ContestsPageOptions): string => {
           aside={<SyncPanel {...options.syncPanel} />}
         />
         <section class="rating-charts">
-          <RatingChart rows={options.rows} metric="new_rating" scale={scale} title="Rating" />
-          <RatingChart rows={options.rows} metric="performance" scale={scale} title="Performance" />
+          <RatingChart rows={options.chartRows} metric="new_rating" scale={scale} title="Rating" />
+          <RatingChart rows={options.chartRows} metric="performance" scale={scale} title="Performance" />
         </section>
-        <ContestsTableSection rows={options.rows} tableRows={options.tableRows} filters={options.filters} />
+        <ContestsTableSection options={options} />
       </>
     ),
   });

@@ -1,6 +1,4 @@
 (() => {
-  document.documentElement.classList.add("js");
-
   const setupRatingFilter = (root) => {
     const min = Number(root.dataset.min);
     const max = Number(root.dataset.max);

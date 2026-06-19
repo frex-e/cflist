@@ -7,7 +7,7 @@ import {
 } from "../accepted-problems.js";
 import { CodeforcesClient } from "../client.js";
 import type { CfRatingChange } from "../types.js";
-import { getCachedStandings } from "./cache.js";
+import { getCachedStandings, backfillUserContestPerformances } from "./cache.js";
 import { syncCatalog } from "./catalog.js";
 import { enqueueContestHydrationJobs } from "./contest-queue.js";
 import { recomputeExistingUpsolvesForUser } from "./contest-hydration.js";
@@ -195,6 +195,7 @@ export const syncUserStatus = async (
     });
 
     writeBasicContestResults(db, userId, cfHandle, sortedCandidateContestIds, ratingsByContestId, checkedAt);
+    backfillUserContestPerformances(db, userId);
 
     for (const contestId of completedContestIds) {
       recomputeExistingUpsolvesForUser(db, userId, contestId, contestsById.get(contestId), accepted);

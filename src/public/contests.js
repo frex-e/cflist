@@ -8,16 +8,16 @@
   };
 
   document.body.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-contest-filter]");
+    const button = event.target.closest("[data-contest-show]");
     if (!(button instanceof HTMLButtonElement)) return;
 
-    const filter = button.dataset.contestFilter;
-    const param = filter === "unrated" ? "hideUnrated" : filter === "upsolve" ? "hideUpsolve" : null;
-    if (!param) return;
+    const show = button.dataset.contestShow;
+    if (show !== "all" && show !== "participated" && show !== "rated") return;
 
     const url = new URL(window.location.href);
-    if (url.searchParams.get(param) === "1") url.searchParams.delete(param);
-    else url.searchParams.set(param, "1");
+    url.searchParams.delete("page");
+    if (show === "all") url.searchParams.delete("show");
+    else url.searchParams.set("show", show);
 
     window.history.pushState({}, "", url);
     refreshTable();

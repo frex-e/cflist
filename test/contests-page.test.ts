@@ -19,7 +19,8 @@ const seedCatalog = (db: DatabaseSync): void => {
       updated_at
     ) VALUES
       (1099, 'Codeforces Round 1099 (Div. 2)', 1750000000, 7200, 'Codeforces Round', 'Div. 2', 'Codeforces Round (Div. 2)', '{}', '2026-01-01T00:00:00.000Z'),
-      (1100, 'Codeforces Round 1100 (Div. 2)', 1760000000, 7200, 'Codeforces Round', 'Div. 2', 'Codeforces Round (Div. 2)', '{}', '2026-01-01T00:00:00.000Z')
+      (1100, 'Codeforces Round 1100 (Div. 2)', 1760000000, 7200, 'Codeforces Round', 'Div. 2', 'Codeforces Round (Div. 2)', '{}', '2026-01-01T00:00:00.000Z'),
+      (1098, 'Upsolve Round (Div. 2)', 1740000000, 7200, 'Codeforces Round', 'Div. 2', 'Codeforces Round (Div. 2)', '{}', '2026-01-01T00:00:00.000Z')
   `,
   ).run();
 
@@ -168,12 +169,17 @@ test("contests page renders rating, performance, and problem outcome pills", asy
     assert.match(html, /contest-problem-pill contest-solved/);
     assert.match(html, /contest-problem-pill upsolved/);
     assert.match(html, /contest-problem-pill unsolved/);
-    assert.match(html, /data-contest-filter="unrated"/);
-    assert.match(html, /data-contest-filter="upsolve"/);
+    assert.match(html, />Contest history</);
+    assert.match(html, /Showing 1-2 of 2/);
+    assert.match(html, /id="contest-rows"/);
+    assert.doesNotMatch(html, /Contest history \(/);
+    assert.match(html, /data-contest-show="all"/);
+    assert.match(html, /data-contest-show="participated"/);
+    assert.match(html, /data-contest-show="rated"/);
   });
 });
 
-test("contests page filters hide unrated and upsolve-only rows", async () => {
+test("contests page show filter keeps mutually exclusive table modes", async () => {
   await withApp(async (app, db) => {
     const cookie = await signUp(app, db);
     const user = db.prepare(`SELECT id FROM "user" WHERE email = 'user@example.com'`).get() as { id: string };
@@ -212,17 +218,195 @@ test("contests page filters hide unrated and upsolve-only rows", async () => {
         rating_delta,
         performance,
         last_checked_at
-      ) VALUES (@userId, 'inj', 1099, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-01-01T00:00:00.000Z')
+      ) VALUES (@userId, 'inj', 1099, 80, 2, 240, 'CONTESTANT', NULL, NULL, NULL, NULL, '2026-01-01T00:00:00.000Z')
     `,
     ).run({ userId: user.id });
 
-    const response = await app.request("/contests?hideUnrated=1&hideUpsolve=1", { headers: { cookie } });
+    db.prepare(
+      `
+      INSERT INTO user_contest_results (
+        user_id,
+        cf_handle,
+        contest_id,
+        rank,
+        points,
+        penalty,
+        participant_type,
+        old_rating,
+        new_rating,
+        rating_delta,
+        performance,
+        last_checked_at
+      ) VALUES (@userId, 'inj', 1098, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-01-01T00:00:00.000Z')
+    `,
+    ).run({ userId: user.id });
+
+    const participated = await app.request("/contests?show=participated", { headers: { cookie } });
+    const participatedHtml = await participated.text();
+    assert.equal(participated.status, 200);
+    assert.match(participatedHtml, /Codeforces Round 1100 \(Div\. 2\)/);
+    assert.match(participatedHtml, /Codeforces Round 1099 \(Div\. 2\)/);
+    assert.doesNotMatch(participatedHtml, /Upsolve Round \(Div\. 2\)/);
+    assert.match(participatedHtml, />Contest history</);
+    assert.match(participatedHtml, /Showing 1-2 of 2/);
+    assert.match(participatedHtml, /data-contest-show="participated"[^>]*aria-pressed="true"/);
+
+    const rated = await app.request("/contests?show=rated", { headers: { cookie } });
+    const ratedHtml = await rated.text();
+    assert.equal(rated.status, 200);
+    assert.match(ratedHtml, /Codeforces Round 1100 \(Div\. 2\)/);
+    assert.doesNotMatch(ratedHtml, /Codeforces Round 1099 \(Div\. 2\)/);
+    assert.match(ratedHtml, /Showing 1-1 of 1/);
+    assert.match(ratedHtml, /data-contest-show="rated"[^>]*aria-pressed="true"/);
+  });
+});
+
+const seedManyContestResults = (db: DatabaseSync, userId: string, count: number): void => {
+  for (let index = 0; index < count; index += 1) {
+    const contestId = 2000 + index;
+    const startTime = 1_700_000_000 - index * 86_400;
+    db.prepare(
+      `
+      INSERT INTO contests (
+        id,
+        name,
+        start_time_seconds,
+        duration_seconds,
+        derived_family,
+        derived_division,
+        derived_label,
+        raw_json,
+        updated_at
+      ) VALUES (@contestId, @name, @startTime, 7200, 'Codeforces Round', 'Div. 2', 'Codeforces Round (Div. 2)', '{}', '2026-01-01T00:00:00.000Z')
+    `,
+    ).run({
+      contestId,
+      name: `Contest ${contestId}`,
+      startTime,
+    });
+
+    db.prepare(
+      `
+      INSERT INTO user_contest_results (
+        user_id,
+        cf_handle,
+        contest_id,
+        rank,
+        points,
+        penalty,
+        participant_type,
+        old_rating,
+        new_rating,
+        rating_delta,
+        performance,
+        last_checked_at
+      ) VALUES (@userId, 'inj', @contestId, @rank, 1, 0, 'CONTESTANT', 1500, 1510, 10, 1520, '2026-01-01T00:00:00.000Z')
+    `,
+    ).run({ userId, contestId, rank: index + 1 });
+  }
+};
+
+test("contests page paginates table rows and appends more via fragment", async () => {
+  await withApp(async (app, db) => {
+    const cookie = await signUp(app, db);
+    const user = db.prepare(`SELECT id FROM "user" WHERE email = 'user@example.com'`).get() as { id: string };
+    seedManyContestResults(db, user.id, 55);
+
+    const response = await app.request("/contests", { headers: { cookie } });
     const html = await response.text();
 
     assert.equal(response.status, 200);
-    assert.match(html, /Codeforces Round 1100 \(Div\. 2\)/);
-    assert.doesNotMatch(html, /Codeforces Round 1099 \(Div\. 2\)/);
-    assert.match(html, /Contest history \(1 of 2\)/);
-    assert.match(html, /aria-pressed="true"/);
+    assert.match(html, /Showing 1-50 of 55/);
+    assert.match(html, /id="load-more"/);
+    assert.match(html, /hx-get="\/contests\/fragment\?page=2&amp;append=1"/);
+    assert.match(html, /href="https:\/\/codeforces.com\/contest\/2049"/);
+    assert.doesNotMatch(html, /href="https:\/\/codeforces.com\/contest\/2050"/);
+
+    const append = await app.request("/contests/fragment?append=1&page=2", { headers: { cookie } });
+    const appendHtml = await append.text();
+    assert.equal(append.status, 200);
+    assert.match(appendHtml, /hx-swap-oob="beforeend:#contest-rows"/);
+    assert.match(appendHtml, /href="https:\/\/codeforces.com\/contest\/2050"/);
+    assert.match(appendHtml, /Showing 1-55 of 55/);
+  });
+});
+
+test("contests page show filter paginates filtered totals from SQL", async () => {
+  await withApp(async (app, db) => {
+    const cookie = await signUp(app, db);
+    const user = db.prepare(`SELECT id FROM "user" WHERE email = 'user@example.com'`).get() as { id: string };
+
+    for (let index = 0; index < 55; index += 1) {
+      const contestId = 3000 + index;
+      const startTime = 1_800_000_000 - index * 86_400;
+      const rated = index % 2 === 0;
+      db.prepare(
+        `
+        INSERT INTO contests (
+          id,
+          name,
+          start_time_seconds,
+          duration_seconds,
+          derived_family,
+          derived_division,
+          derived_label,
+          raw_json,
+          updated_at
+        ) VALUES (@contestId, @name, @startTime, 7200, 'Codeforces Round', 'Div. 2', 'Codeforces Round (Div. 2)', '{}', '2026-01-01T00:00:00.000Z')
+      `,
+      ).run({
+        contestId,
+        name: `Rated Contest ${contestId}`,
+        startTime,
+      });
+
+      db.prepare(
+        `
+        INSERT INTO user_contest_results (
+          user_id,
+          cf_handle,
+          contest_id,
+          rank,
+          points,
+          penalty,
+          participant_type,
+          old_rating,
+          new_rating,
+          rating_delta,
+          performance,
+          last_checked_at
+        ) VALUES (
+          @userId,
+          'inj',
+          @contestId,
+          10,
+          1,
+          0,
+          'CONTESTANT',
+          @oldRating,
+          @newRating,
+          @delta,
+          @performance,
+          '2026-01-01T00:00:00.000Z'
+        )
+      `,
+      ).run({
+        userId: user.id,
+        contestId,
+        oldRating: rated ? 1500 : null,
+        newRating: rated ? 1510 : null,
+        delta: rated ? 10 : null,
+        performance: rated ? 1520 : null,
+      });
+    }
+
+    const response = await app.request("/contests?show=rated", { headers: { cookie } });
+    const html = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.match(html, /class="rating-charts"/);
+    assert.match(html, />28 rated contests</);
+    assert.match(html, /Showing 1-28 of 28/);
+    assert.doesNotMatch(html, /hx-get="\/contests\/fragment\?show=rated&amp;page=2&amp;append=1"/);
   });
 });

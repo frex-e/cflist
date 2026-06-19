@@ -95,6 +95,7 @@ export const SyncPanel = (options: SyncPanelOptions) => {
       data-auto-sync-started={autoSyncStarted ? "true" : "false"}
       hx-get={shouldPoll ? panelUrl({ returnTo, refreshPage }) : undefined}
       hx-trigger={shouldPoll ? "every 3s" : undefined}
+      hx-target="this"
       hx-swap={shouldPoll ? "outerHTML" : undefined}
     >
       <div class="sync-panel-copy">

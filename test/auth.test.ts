@@ -4,7 +4,15 @@ import test from "node:test";
 import { createApp } from "../src/app.js";
 import { migrate } from "../src/db/migrate.js";
 
-const withApp = async (fn: (app: ReturnType<typeof createApp>, db: DatabaseSync) => Promise<void>): Promise<void> => {
+type AppOptions = {
+  github?: boolean;
+  githubOnly?: boolean;
+};
+
+const withApp = async (
+  fn: (app: ReturnType<typeof createApp>, db: DatabaseSync) => Promise<void>,
+  options: AppOptions = {},
+): Promise<void> => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
   migrate(db);
@@ -15,6 +23,14 @@ const withApp = async (fn: (app: ReturnType<typeof createApp>, db: DatabaseSync)
       authBaseURL: "http://localhost",
       authSecret: "test-secret-with-enough-length-32",
       authTrustedOrigins: ["http://localhost"],
+      skipInitialSync: true,
+      ...(options.github
+        ? {
+            githubClientId: "test-github-client-id",
+            githubClientSecret: "test-github-client-secret",
+          }
+        : {}),
+      ...(options.githubOnly ? { authGitHubOnly: true } : {}),
     });
     await fn(app, db);
   } finally {
@@ -52,6 +68,13 @@ const signUp = async (app: ReturnType<typeof createApp>, db: DatabaseSync): Prom
   return cookie;
 };
 
+const signUpWithoutCfHandle = async (app: ReturnType<typeof createApp>, db: DatabaseSync): Promise<string> => {
+  const cookie = await signUp(app, db);
+  const user = db.prepare(`SELECT id FROM "user" WHERE email = 'user@example.com'`).get() as { id: string };
+  db.prepare(`UPDATE "user" SET cfHandle = '' WHERE id = @userId`).run({ userId: user.id });
+  return cookie;
+};
+
 test("sign out clears the session cookie and invalidates the session", async () => {
   await withApp(async (app, db) => {
     const cookie = await signUp(app, db);
@@ -72,4 +95,150 @@ test("sign out clears the session cookie and invalidates the session", async () 
     assert.equal(staleSessionResponse.status, 302);
     assert.match(staleSessionResponse.headers.get("location") ?? "", /^\/sign-in\?returnTo=/);
   });
+});
+
+test("GET /sign-in/github redirects to GitHub when configured", async () => {
+  await withApp(async (app) => {
+    const response = await app.request("/sign-in/github?returnTo=/problems");
+
+    assert.equal(response.status, 303);
+    const location = response.headers.get("location") ?? "";
+    assert.match(location, /^https:\/\/github\.com\/login\/oauth\/authorize/);
+    assert.match(location, /client_id=test-github-client-id/);
+
+    const setCookie = response.headers.getSetCookie?.() ?? [response.headers.get("set-cookie")].filter(Boolean);
+    assert.ok(setCookie.length > 0, "OAuth state cookie must be forwarded to the browser");
+    assert.match(setCookie.join("; "), /better-auth\.state=/);
+  }, { github: true });
+});
+
+test("GET /sign-in/github returns 404 when GitHub is not configured", async () => {
+  await withApp(async (app) => {
+    const response = await app.request("/sign-in/github");
+    assert.equal(response.status, 404);
+  });
+});
+
+test("signed-in user without cfHandle is redirected to complete profile", async () => {
+  await withApp(async (app, db) => {
+    const cookie = await signUpWithoutCfHandle(app, db);
+
+    const response = await app.request("/problems", { headers: { cookie } });
+    assert.equal(response.status, 302);
+    assert.match(response.headers.get("location") ?? "", /^\/complete-profile\?returnTo=/);
+  });
+});
+
+test("complete profile sets cfHandle and unlocks protected pages", async () => {
+  await withApp(async (app, db) => {
+    const cookie = await signUpWithoutCfHandle(app, db);
+
+    const blockedResponse = await app.request("/problems", { headers: { cookie } });
+    assert.equal(blockedResponse.status, 302);
+
+    const completeResponse = await app.request("/complete-profile", {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        cfHandle: "tourist",
+        returnTo: "/problems",
+      }).toString(),
+    });
+    assert.equal(completeResponse.status, 302);
+    assert.equal(completeResponse.headers.get("location"), "/problems");
+
+    const user = db.prepare(`SELECT cfHandle FROM "user" WHERE email = 'user@example.com'`).get() as {
+      cfHandle: string;
+    };
+    assert.equal(user.cfHandle, "tourist");
+
+    const problemsResponse = await app.request("/problems", { headers: { cookie } });
+    assert.equal(problemsResponse.status, 200);
+  });
+});
+
+test("sign-in page shows GitHub button when configured", async () => {
+  await withApp(async (app) => {
+    const response = await app.request("/sign-in");
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.match(html, /Continue with GitHub/);
+    assert.match(html, /\/sign-in\/github/);
+  }, { github: true });
+});
+
+test("sign-in page hides GitHub button when not configured", async () => {
+  await withApp(async (app) => {
+    const response = await app.request("/sign-in");
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.doesNotMatch(html, /Continue with GitHub/);
+  });
+});
+
+test("github-only mode shows GitHub sign-in without email form", async () => {
+  await withApp(async (app) => {
+    const response = await app.request("/sign-in");
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.match(html, /Continue with GitHub/);
+    assert.match(html, /Sign in or create account/);
+    assert.doesNotMatch(html, /type="password"/);
+    assert.doesNotMatch(html, /Need an account\?/);
+    assert.doesNotMatch(html, /href="\/sign-up"/);
+  }, { github: true, githubOnly: true });
+});
+
+test("github-only mode rejects email sign-in and redirects sign-up", async () => {
+  await withApp(async (app) => {
+    const signInResponse = await app.request("/sign-in", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        email: "user@example.com",
+        password: "password123",
+      }).toString(),
+    });
+    assert.equal(signInResponse.status, 404);
+
+    const signUpGet = await app.request("/sign-up?returnTo=/problems");
+    assert.equal(signUpGet.status, 302);
+    assert.equal(signUpGet.headers.get("location"), "/sign-in?returnTo=%2Fproblems");
+
+    const signUpPost = await app.request("/sign-up", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        name: "Test User",
+        email: "user@example.com",
+        password: "password123",
+        cfHandle: "tourist",
+      }).toString(),
+    });
+    assert.equal(signUpPost.status, 404);
+  }, { github: true, githubOnly: true });
+});
+
+test("github-only mode requires GitHub credentials", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+
+  assert.throws(
+    () =>
+      createApp(db, {
+        publicRoot: "src/public",
+        authBaseURL: "http://localhost",
+        authSecret: "test-secret-with-enough-length-32",
+        authTrustedOrigins: ["http://localhost"],
+        skipInitialSync: true,
+        authGitHubOnly: true,
+      }),
+    /GitHub-only auth requires/,
+  );
+
+  db.close();
 });

@@ -1,6 +1,8 @@
 import type { AuthUser } from "../../auth.js";
 import type { FilterOptions, ListResult, ProblemFilters } from "../../db/queries.js";
 import { defaultSortDirection } from "../../db/queries.js";
+import { fragmentUrl as buildFragmentUrl } from "../fragment-url.js";
+import { pageNav as buildPageNav, type PageNav } from "../pagination.js";
 import type { SyncPanelOptions } from "../sync-panel.js";
 
 export type ProblemsPageOptions = {
@@ -11,9 +13,7 @@ export type ProblemsPageOptions = {
   user: AuthUser;
 };
 
-export type PageNav = {
-  next: string;
-};
+export type { PageNav };
 
 export const problemListUrl = (filters: ProblemFilters, page: number): string => {
   const params = new URLSearchParams();
@@ -39,18 +39,8 @@ export const problemListQuery = (filters: ProblemFilters): string => {
   return url.includes("?") ? url.slice(url.indexOf("?") + 1) : "";
 };
 
-export const fragmentUrl = (url: string, extra?: Record<string, string>): string => {
-  const parsed = new URL(url, "http://cflist.local");
-  parsed.pathname = "/problems/fragment";
-  for (const [key, value] of Object.entries(extra ?? {})) {
-    parsed.searchParams.set(key, value);
-  }
-  return `${parsed.pathname}${parsed.search}`;
-};
+export const fragmentUrl = (url: string, extra?: Record<string, string>): string =>
+  buildFragmentUrl("/problems/fragment", url, extra);
 
-export const pageNav = (filters: ProblemFilters, total: number): PageNav => {
-  const totalPages = Math.max(1, Math.ceil(total / filters.pageSize));
-  return {
-    next: filters.page < totalPages ? problemListUrl(filters, filters.page + 1) : "",
-  };
-};
+export const pageNav = (filters: ProblemFilters, total: number): PageNav =>
+  buildPageNav(filters.page, filters.pageSize, total, problemListUrl(filters, filters.page + 1));

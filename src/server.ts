@@ -1,3 +1,4 @@
+import "./load-env.js";
 import { serve } from "@hono/node-server";
 import { config } from "./config.js";
 import { createApp } from "./app.js";
@@ -19,6 +20,9 @@ const app = createApp(db, {
     `http://localhost:${config.port}`,
     `http://127.0.0.1:${config.port}`,
   ],
+  githubClientId: config.githubClientId,
+  githubClientSecret: config.githubClientSecret,
+  authGitHubOnly: config.authGitHubOnly,
 });
 
 const maybeSync = (): void => {

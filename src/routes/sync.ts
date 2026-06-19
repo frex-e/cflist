@@ -24,6 +24,8 @@ const refreshPageFrom = (value: string | undefined): "problems" | "contests" => 
   return value === "contests" ? "contests" : "problems";
 };
 
+const isHtmx = (c: AppContext): boolean => c.req.header("hx-request") === "true";
+
 export const registerSyncRoutes = (
   app: Hono<{ Variables: AppVariables }>,
   deps: SyncRouteDeps,
@@ -36,6 +38,7 @@ export const registerSyncRoutes = (
 
     const returnTo = safeReturnTo(c.req.query("returnTo")) ?? "/problems";
     const refreshPage = refreshPageFrom(c.req.query("refreshPage"));
+    if (!isHtmx(c)) return c.redirect(returnTo);
     return c.html(syncPanelHtml(buildSyncPanelOptions(db, user, returnTo, refreshPage)));
   });
 
@@ -48,6 +51,8 @@ export const registerSyncRoutes = (
     const refreshPage = refreshPageFrom(firstString(form.refreshPage));
     const alreadyRunning = syncState.userRunning.has(user.id);
     const started = alreadyRunning ? false : runSyncInBackground(user);
+    if (!isHtmx(c)) return c.redirect(returnTo);
+
     const notice = alreadyRunning || !started ? "already-running" : undefined;
 
     return c.html(syncPanelHtml(buildSyncPanelOptions(db, user, returnTo, refreshPage, notice)));

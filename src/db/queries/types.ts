@@ -69,6 +69,13 @@ export type ContestProblemResultRow = {
   best_submission_time_seconds: number | null;
 };
 
+export type ContestShowMode = "all" | "participated" | "rated";
+
+export type ContestListResult = {
+  rows: ContestResultRow[];
+  total: number;
+};
+
 export type ContestResultRow = {
   contest_id: number;
   contest_name: string;

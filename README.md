@@ -8,14 +8,17 @@ Requires Node.js 24 or newer.
 
 ```sh
 npm install
+cp .env.example .env
 npm run dev
 ```
+
+Optional: set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `.env` to enable GitHub sign-in. If either is missing, GitHub auth stays disabled.
 
 The app listens on `http://localhost:3000` by default.
 
 ## Configuration
 
-Environment variables:
+Environment variables are read from the process environment. For local development, copy [`.env.example`](./.env.example) to `.env` in the project root; the server loads it automatically on startup.
 
 - `PORT`: server port, default `3000`
 - `HOST`: bind host, default `127.0.0.1`
@@ -24,9 +27,10 @@ Environment variables:
 - `BETTER_AUTH_SECRET` or `AUTH_SECRET`: auth secret; set a random 32+ byte value for production
 - `BETTER_AUTH_URL` or `AUTH_BASE_URL`: public app base URL, default derived from host/port
 - `AUTH_TRUSTED_ORIGINS`: comma-separated additional trusted origins for auth form posts
+- `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`: optional GitHub OAuth credentials; when both are set, sign-in and sign-up pages show a GitHub button
 - `PUBLIC_ROOT`: static asset root, default `./src`
 
-Authentication is local email/password auth through Better Auth. Auth state, account Codeforces handles, sessions, solved status, overrides, and saved default filters are stored in SQLite. Existing pre-auth databases can be deleted and recreated.
+Authentication is email/password through Better Auth, with optional GitHub OAuth when configured. Register a GitHub OAuth App with callback URL `{AUTH_BASE_URL}/api/auth/callback/github` (for local dev: `http://localhost:3000/api/auth/callback/github`). GitHub users must have a visible primary email on their GitHub account. New GitHub sign-ups complete a Codeforces handle on `/complete-profile` before using the app. Auth state, account Codeforces handles, sessions, solved status, overrides, and saved default filters are stored in SQLite. Existing pre-auth databases can be deleted and recreated.
 
 ## Commands
 

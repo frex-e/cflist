@@ -1,3 +1,4 @@
+import "../load-env.js";
 import { config } from "../config.js";
 import { openDb } from "../db/connection.js";
 import { migrate } from "../db/migrate.js";

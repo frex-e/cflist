@@ -80,6 +80,12 @@ button:hover,
   text-decoration: none;
 }
 
+button:focus-visible,
+.button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
 button:disabled,
 .button.disabled {
   border-color: var(--border);
@@ -242,8 +248,62 @@ p {
   gap: 12px;
 }
 
-.auth-form button {
+.auth-panel .button,
+.auth-panel .auth-submit {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 8px;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease,
+    box-shadow 120ms ease,
+    transform 120ms ease;
+}
+
+.auth-submit {
   margin-top: 4px;
+  box-shadow: 0 1px 2px rgba(17, 17, 17, 0.12);
+}
+
+.auth-submit:hover {
+  box-shadow: 0 3px 10px rgba(17, 17, 17, 0.16);
+  transform: translateY(-1px);
+}
+
+.auth-submit:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(17, 17, 17, 0.1);
+}
+
+.auth-github {
+  gap: 8px;
+  text-decoration: none;
+  box-shadow: 0 1px 2px rgba(17, 17, 17, 0.04);
+}
+
+.auth-github:hover {
+  box-shadow: 0 2px 6px rgba(17, 17, 17, 0.08);
+  transform: translateY(-1px);
+}
+
+.auth-github:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(17, 17, 17, 0.04);
+}
+
+.auth-github-icon {
+  display: block;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.auth-divider {
+  margin: 14px 0 0;
+  text-align: center;
+  color: var(--muted);
 }
 
 .form-error {
@@ -253,7 +313,7 @@ p {
 
 .sync-panel {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
   flex: 0 1 640px;
@@ -309,23 +369,6 @@ p {
 .sync-panel button,
 .sync-panel input {
   min-height: 30px;
-}
-
-.sync-prompt-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 0 0 16px;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-subtle);
-}
-
-.sync-prompt-banner p {
-  margin: 0;
-  color: var(--text);
 }
 
 .contest-hydration-error {
@@ -972,25 +1015,73 @@ td.tags {
   font-weight: 650;
 }
 
-.table-head-main {
+.table-head-contests {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px 20px;
+}
+
+.table-head-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.table-head-contests .table-head-title {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.table-head-contests .table-head-meta {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.table-head-contests .contest-filters {
+  justify-self: center;
+}
+
+.table-head-contests .contest-legend {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
+  justify-content: flex-end;
+  gap: 10px 14px;
+  justify-self: end;
 }
 
 .contest-filters {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+}
+
+.contest-filter-group {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
 }
 
 .contest-filter-btn {
   min-height: 28px;
-  padding: 0 8px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 0;
+  border-right: 1px solid var(--border-strong);
   font-size: 12px;
   font-weight: 600;
+}
+
+.contest-filter-btn:last-child {
+  border-right: 0;
+}
+
+.contest-filter-btn[aria-pressed="false"] {
+  color: var(--muted);
 }
 
 .contest-filter-btn[aria-pressed="true"] {
@@ -999,9 +1090,12 @@ td.tags {
   color: #ffffff;
 }
 
+.contest-filter-btn[aria-pressed="true"] + .contest-filter-btn {
+  border-left-color: var(--text);
+}
+
 .contest-filter-btn[aria-pressed="true"]:hover {
   background: #333333;
-  border-color: #333333;
 }
 
 .contest-problems,
@@ -1189,6 +1283,20 @@ button.status-button {
   .table-head {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .table-head-contests {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+
+  .table-head-contests .contest-filters,
+  .table-head-contests .contest-legend {
+    justify-self: start;
+  }
+
+  .table-head-contests .contest-legend {
+    justify-content: flex-start;
   }
 
   .topnav {

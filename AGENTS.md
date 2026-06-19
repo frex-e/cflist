@@ -4,7 +4,7 @@ Keep this file and `agents/` updated when architecture, commands, data flow, dep
 
 ## Project
 
-CFList is a small personal Codeforces problem index: Node.js 24+ / TypeScript, Hono server-rendered HTML, SQLite (`node:sqlite`), Better Auth (local email/password). HTMX + plain CSS + `src/public/filters.js` on the problems page. Local DB: `data/cflist.sqlite` (gitignored).
+CFList is a small personal Codeforces problem index: Node.js 24+ / TypeScript, Hono server-rendered HTML, SQLite (`node:sqlite`), Better Auth (email/password + optional GitHub OAuth). HTMX + plain CSS + `src/public/filters.js` on the problems page. Local DB: `data/cflist.sqlite` (gitignored).
 
 ## Commands
 

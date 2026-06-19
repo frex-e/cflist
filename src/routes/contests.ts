@@ -1,12 +1,18 @@
 import type { Context, Hono } from "hono";
 import type { AuthUser, AuthSession } from "../auth.js";
+import { backfillUserContestPerformances } from "../cf/sync/cache.js";
 import type { Db } from "../db/connection.js";
-import { getContestSyncJobsByContest, listUserContestResults } from "../db/queries.js";
+import {
+  countUserContestResults,
+  getContestSyncJobsByContest,
+  listUserContestChartRows,
+  listUserContestResults,
+} from "../db/queries.js";
 import type { ContestResultRow } from "../db/queries.js";
 import type { ContestSyncJobRow } from "../db/queries.js";
 import { buildSyncPanelOptions } from "../http/sync-panel.js";
-import { contestsPage, contestsTableFragment } from "../views/contests.js";
-import { filterContestTableRows, parseContestTableFilters } from "../views/contests/filters.js";
+import { contestsAppendFragment, contestsPage, contestsTableFragment } from "../views/contests.js";
+import { parseContestTableFilters } from "../views/contests/filters.js";
 
 type AppVariables = {
   user: AuthUser | null;
@@ -40,17 +46,34 @@ const hydrationFromJob = (job: ContestSyncJobRow | undefined): Pick<ContestResul
   return {};
 };
 
-const contestsOptionsFor = (db: Db, user: AuthUser, searchParams: URLSearchParams, autoSyncStarted = false) => {
-  const jobs = getContestSyncJobsByContest(db, user.id);
-  const rows = listUserContestResults(db, user.id).map((row) => ({
+const withHydration = (
+  rows: ContestResultRow[],
+  jobs: Map<number, ContestSyncJobRow>,
+): ContestResultRow[] =>
+  rows.map((row) => ({
     ...row,
     ...hydrationFromJob(jobs.get(row.contest_id)),
   }));
+
+const contestsOptionsFor = (
+  db: Db,
+  user: AuthUser,
+  searchParams: URLSearchParams,
+  options: { autoSyncStarted?: boolean; includeCharts?: boolean } = {},
+) => {
+  const { autoSyncStarted = false, includeCharts = false } = options;
+  const jobs = getContestSyncJobsByContest(db, user.id);
   const filters = parseContestTableFilters(searchParams);
+  backfillUserContestPerformances(db, user.id);
+  const tableResult = listUserContestResults(db, user.id, filters);
 
   return {
-    rows,
-    tableRows: filterContestTableRows(rows, filters),
+    chartRows: includeCharts ? listUserContestChartRows(db, user.id) : [],
+    syncedCount: countUserContestResults(db, user.id),
+    tableResult: {
+      ...tableResult,
+      rows: withHydration(tableResult.rows, jobs),
+    },
     filters,
     syncPanel: buildSyncPanelOptions(db, user, "/contests", "contests", undefined, autoSyncStarted),
     user,
@@ -69,7 +92,7 @@ export const registerContestsRoutes = (
     const autoSyncStarted = maybeStartInitialSync(user);
 
     const searchParams = new URL(c.req.url).searchParams;
-    return c.html(contestsPage(contestsOptionsFor(db, user, searchParams, autoSyncStarted)));
+    return c.html(contestsPage(contestsOptionsFor(db, user, searchParams, { autoSyncStarted, includeCharts: true })));
   });
 
   app.get("/contests/fragment", (c) => {
@@ -77,6 +100,11 @@ export const registerContestsRoutes = (
     if (user instanceof Response) return user;
 
     const searchParams = new URL(c.req.url).searchParams;
-    return c.html(contestsTableFragment(contestsOptionsFor(db, user, searchParams)));
+    const options = contestsOptionsFor(db, user, searchParams);
+    if (c.req.query("append") === "1") {
+      return c.html(contestsAppendFragment(options));
+    }
+
+    return c.html(contestsTableFragment(options));
   });
 };

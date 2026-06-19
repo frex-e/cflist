@@ -1,6 +1,6 @@
 export { defaultSortDirection, normalizeFilters } from "./filters.js";
 export { listProblems, getProblem } from "./problems.js";
-export { listUserContestResults } from "./contests.js";
+export { listUserContestResults, listUserContestChartRows, countUserContestResults, buildContestShowWhere } from "./contests.js";
 export {
   getFilterOptions,
   getLatestSyncRun,
@@ -27,4 +27,6 @@ export type {
   ListResult,
   ContestProblemResultRow,
   ContestResultRow,
+  ContestShowMode,
+  ContestListResult,
 } from "./types.js";

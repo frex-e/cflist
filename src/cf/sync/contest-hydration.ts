@@ -85,7 +85,7 @@ const shouldSkipFullHydration = async (
   const checkedAt = now();
   const needsPerformance = existing.old_rating !== null && existing.new_rating !== null && existing.performance === null && existing.rank !== 1;
   const performance = needsPerformance
-    ? await getOrCalculatePerformance(db, client, contestId, cfHandle)
+    ? await getOrCalculatePerformance(db, client, userId, contestId, cfHandle)
     : existing.performance;
 
   db.prepare(
@@ -339,7 +339,7 @@ export const hydrateUserContestResult = async (
       }
     : undefined;
   const performance = existingRatingChange && existingRatingChange.rank !== 1
-    ? await getOrCalculatePerformance(db, client, contestId, cfHandle)
+    ? await getOrCalculatePerformance(db, client, userId, contestId, cfHandle)
     : null;
   const standings = await getOrFetchStandings(db, client, contestId);
   const knownProblemRows = db

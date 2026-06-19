@@ -56,42 +56,42 @@ export const getCachedStandings = (db: Db, contestId: number): CfStandings | und
   return parseCachedJson<CfStandings>(cached?.raw_json);
 };
 
-export const getOrFetchRatingChanges = async (
-  db: Db,
-  client: CodeforcesClient,
-  contestId: number,
-): Promise<CfRatingChange[]> => {
-  return getOrFetchContestCache(db, "ratingChanges", contestId, () => client.contestRatingChanges(contestId));
+export const getCachedRatingChanges = (db: Db, contestId: number): CfRatingChange[] | undefined => {
+  const cached = db
+    .prepare("SELECT raw_json FROM contest_rating_changes_cache WHERE contest_id = @contestId")
+    .get({ contestId }) as { raw_json: string } | undefined;
+  return parseCachedJson<CfRatingChange[]>(cached?.raw_json);
 };
 
-export const getOrFetchStandings = async (
+export const calculatePerformanceFromCache = (
   db: Db,
-  client: CodeforcesClient,
-  contestId: number,
-): Promise<CfStandings> => {
-  return getOrFetchContestCache(db, "standings", contestId, () => client.contestStandings(contestId));
-};
-
-export const getOrCalculatePerformance = async (
-  db: Db,
-  client: CodeforcesClient,
+  userId: string,
   contestId: number,
   handle: string,
-): Promise<number | null> => {
-  const key = handleKey(handle);
-  const cached = db
-    .prepare(
-      `
-      SELECT performance
-      FROM contest_performance_cache
-      WHERE contest_id = @contestId AND handle_key = @handleKey
-    `,
-    )
-    .get({ contestId, handleKey: key }) as { performance: number | null } | undefined;
-  if (cached) return cached.performance;
+): number | null => {
+  const changes = getCachedRatingChanges(db, contestId);
+  if (!changes) return null;
 
-  const changes = await getOrFetchRatingChanges(db, client, contestId);
-  const performance = estimateContestPerformance(changes, handle)?.performance ?? null;
+  const ratedContestIndex = getRatedContestIndex(db, userId, contestId);
+  return estimateContestPerformance(changes, handle, ratedContestIndex)?.performance ?? null;
+};
+
+const persistContestPerformance = (
+  db: Db,
+  userId: string,
+  contestId: number,
+  handle: string,
+  performance: number | null,
+): void => {
+  const key = handleKey(handle);
+  db.prepare(
+    `
+    UPDATE user_contest_results
+    SET performance = @performance
+    WHERE user_id = @userId AND contest_id = @contestId
+  `,
+  ).run({ userId, contestId, performance });
+
   db.prepare(
     `
     INSERT INTO contest_performance_cache (
@@ -119,5 +119,104 @@ export const getOrCalculatePerformance = async (
     performance,
     calculatedAt: now(),
   });
+};
+
+export const backfillUserContestPerformances = (db: Db, userId: string): void => {
+  const cachedRows = db.prepare(
+    `
+    SELECT ucr.contest_id, ucr.cf_handle, cpc.performance
+    FROM user_contest_results ucr
+    JOIN contest_performance_cache cpc
+      ON cpc.contest_id = ucr.contest_id
+      AND cpc.handle_key = lower(ucr.cf_handle)
+    WHERE ucr.user_id = @userId
+      AND ucr.new_rating IS NOT NULL
+      AND ucr.performance IS NULL
+      AND (ucr.rank IS NULL OR ucr.rank != 1)
+      AND cpc.performance IS NOT NULL
+  `,
+  ).all({ userId }) as { contest_id: number; cf_handle: string; performance: number }[];
+
+  for (const row of cachedRows) {
+    db.prepare(
+      `
+      UPDATE user_contest_results
+      SET performance = @performance
+      WHERE user_id = @userId AND contest_id = @contestId
+    `,
+    ).run({ userId, contestId: row.contest_id, performance: row.performance });
+  }
+
+  const rows = db.prepare(
+    `
+    SELECT contest_id, cf_handle, rank
+    FROM user_contest_results
+    WHERE user_id = @userId
+      AND new_rating IS NOT NULL
+      AND performance IS NULL
+      AND (rank IS NULL OR rank != 1)
+  `,
+  ).all({ userId }) as { contest_id: number; cf_handle: string; rank: number | null }[];
+
+  for (const row of rows) {
+    const performance = calculatePerformanceFromCache(db, userId, row.contest_id, row.cf_handle);
+    if (performance === null) continue;
+    persistContestPerformance(db, userId, row.contest_id, row.cf_handle, performance);
+  }
+};
+
+export const getOrFetchRatingChanges = async (
+  db: Db,
+  client: CodeforcesClient,
+  contestId: number,
+): Promise<CfRatingChange[]> => {
+  return getOrFetchContestCache(db, "ratingChanges", contestId, () => client.contestRatingChanges(contestId));
+};
+
+export const getOrFetchStandings = async (
+  db: Db,
+  client: CodeforcesClient,
+  contestId: number,
+): Promise<CfStandings> => {
+  return getOrFetchContestCache(db, "standings", contestId, () => client.contestStandings(contestId));
+};
+
+export const getRatedContestIndex = (db: Db, userId: string, contestId: number): number | undefined => {
+  const rows = db.prepare(`
+    SELECT ucr.contest_id
+    FROM user_contest_results ucr
+    JOIN contests c ON c.id = ucr.contest_id
+    WHERE ucr.user_id = @userId
+      AND ucr.new_rating IS NOT NULL
+    ORDER BY c.start_time_seconds ASC, ucr.contest_id ASC
+  `).all({ userId }) as { contest_id: number }[];
+
+  const index = rows.findIndex((row) => row.contest_id === contestId);
+  return index >= 0 ? index + 1 : undefined;
+};
+
+export const getOrCalculatePerformance = async (
+  db: Db,
+  client: CodeforcesClient,
+  userId: string,
+  contestId: number,
+  handle: string,
+): Promise<number | null> => {
+  const key = handleKey(handle);
+  const cached = db
+    .prepare(
+      `
+      SELECT performance
+      FROM contest_performance_cache
+      WHERE contest_id = @contestId AND handle_key = @handleKey
+    `,
+    )
+    .get({ contestId, handleKey: key }) as { performance: number | null } | undefined;
+  if (cached) return cached.performance;
+
+  const changes = await getOrFetchRatingChanges(db, client, contestId);
+  const ratedContestIndex = getRatedContestIndex(db, userId, contestId);
+  const performance = estimateContestPerformance(changes, handle, ratedContestIndex)?.performance ?? null;
+  persistContestPerformance(db, userId, contestId, handle, performance);
   return performance;
 };

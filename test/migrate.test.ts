@@ -58,7 +58,7 @@ test("migration 2 creates contest_sync_jobs on upgraded databases", () => {
       .get() as { name: string } | undefined;
 
     assert.equal(table?.name, "contest_sync_jobs");
-    assert.equal(version.version, 2);
+    assert.equal(version.version, 5);
     assert.equal(claimIndex?.name, "idx_contest_sync_jobs_claim");
   } finally {
     db.close();

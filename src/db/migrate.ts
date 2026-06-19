@@ -1,3 +1,4 @@
+import { backfillUserContestPerformances } from "../cf/sync/cache.js";
 import type { Db } from "./connection.js";
 
 const MIGRATION_1_SQL = `
@@ -246,6 +247,27 @@ const MIGRATION_2_SQL = `
     CREATE INDEX IF NOT EXISTS idx_contest_sync_jobs_user ON contest_sync_jobs(user_id, status);
   `;
 
+const MIGRATION_3_SQL = `
+    DELETE FROM contest_performance_cache
+    WHERE (contest_id, handle_key) IN (
+      SELECT contest_id, lower(cf_handle)
+      FROM user_contest_results
+      WHERE old_rating = 0
+    );
+
+    UPDATE user_contest_results
+    SET performance = NULL
+    WHERE old_rating = 0 AND performance IS NOT NULL;
+  `;
+
+const MIGRATION_4_SQL = `
+    DELETE FROM contest_performance_cache;
+
+    UPDATE user_contest_results
+    SET performance = NULL
+    WHERE performance IS NOT NULL;
+  `;
+
 const currentVersion = (db: Db): number => {
   const row = db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number | null };
   return row.version ?? 0;
@@ -274,6 +296,45 @@ const applyMigration = (db: Db, version: number, sql: string, skipSqlIfTablesExi
   recordMigration(db, version);
 };
 
+const applyPerformanceRecalculationMigration = (db: Db): void => {
+  if (currentVersion(db) >= 3) return;
+
+  if (tableExists(db, "contest_performance_cache") && tableExists(db, "user_contest_results")) {
+    db.exec(MIGRATION_3_SQL);
+  }
+
+  recordMigration(db, 3);
+};
+
+const applyBootstrapPerformanceMigration = (db: Db): void => {
+  if (currentVersion(db) >= 4) return;
+
+  if (tableExists(db, "contest_performance_cache") && tableExists(db, "user_contest_results")) {
+    db.exec(MIGRATION_4_SQL);
+  }
+
+  recordMigration(db, 4);
+};
+
+const applyPerformanceBackfillMigration = (db: Db): void => {
+  if (currentVersion(db) >= 5) return;
+  if (!tableExists(db, "user_contest_results")) {
+    recordMigration(db, 5);
+    return;
+  }
+
+  const users = db.prepare(`
+    SELECT DISTINCT user_id AS userId
+    FROM user_contest_results
+  `).all() as { userId: string }[];
+
+  for (const user of users) {
+    backfillUserContestPerformances(db, user.userId);
+  }
+
+  recordMigration(db, 5);
+};
+
 export const migrate = (db: Db): void => {
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -284,4 +345,7 @@ export const migrate = (db: Db): void => {
 
   applyMigration(db, 1, MIGRATION_1_SQL, "problems");
   applyMigration(db, 2, MIGRATION_2_SQL);
+  applyPerformanceRecalculationMigration(db);
+  applyBootstrapPerformanceMigration(db);
+  applyPerformanceBackfillMigration(db);
 };

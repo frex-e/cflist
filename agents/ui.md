@@ -22,7 +22,7 @@ Server-rendered Hono TSX views under `src/views/`. `filters.js` loads only on `/
 - Solved toggles POST and re-render `#problem-list` plus summary via HTMX so rows disappear under filters like `solved=unsolved`. Filter context comes from the `HX-Current-URL` header.
 - Filter changes fetch `/problems/fragment`, swap the table, and update the canonical URL.
 - `Set default` posts to `/preferences/default-filters` via `fetch` in `filters.js` for inline status.
-- HTMX infinite-scroll sentinel appends `/problems/fragment?append=1` pages at the bottom.
+- HTMX infinite-scroll sentinel appends `/problems/fragment?append=1` pages at the bottom. `infinite-scroll.js` loads the next page when the user scrolls it into view (one page per scroll position, no auto-cascade).
 - Cumulative table label during scroll (e.g. `Showing 1-100 of 11,245`).
 - Filter panel scrolls with the page, not independently.
 
@@ -30,7 +30,9 @@ Server-rendered Hono TSX views under `src/views/`. `filters.js` loads only on `/
 
 `/contests` shows recent synced contest rows with rank, score, rating delta, estimated performance, and per-problem solve/upsolve pills.
 
-- Table filter toggles hide unrated rows (`new_rating` is null) and upsolve-only rows (blank rank/score). Filters are URL-backed via `hideUnrated=1` and `hideUpsolve=1`; charts still use the full synced set.
+- Table show control is a 3-way segment: `All`, `Participated`, `Rated`. URL param `show=participated|rated` (`All` omits it). Participated hides upsolve-only rows; Rated keeps only rating-changing contests. Rating/performance charts always plot every rated contest (`new_rating IS NOT NULL`), independent of table filter and pagination.
+- HTMX infinite-scroll sentinel appends `/contests/fragment?append=1` pages at the bottom (fixed page size 50). `infinite-scroll.js` loads the next page when the user scrolls it into view (one page per scroll position, no auto-cascade).
+- Cumulative table label during scroll (e.g. `Showing 1-50 of 237`). Filter changes reset to page 1.
 
 ## Sync panel
 

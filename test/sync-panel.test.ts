@@ -99,7 +99,7 @@ test("sync panel endpoint renders polling attributes while sync is running", asy
 
     try {
       const response = await app.request("/admin/sync/panel?returnTo=%2Fproblems&refreshPage=problems", {
-        headers: { cookie },
+        headers: { cookie, "hx-request": "true" },
       });
       const html = await response.text();
 
@@ -111,6 +111,42 @@ test("sync panel endpoint renders polling attributes while sync is running", asy
     } finally {
       syncState.userRunning.delete(user.id);
     }
+  });
+});
+
+test("sync POST redirects for non-HTMX requests", async () => {
+  await withTestApp(async (app, db) => {
+    const cookie = await signUp(app, db);
+
+    const response = await app.request("/admin/sync", {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        returnTo: "/problems",
+        refreshPage: "problems",
+      }).toString(),
+    });
+
+    assert.equal(response.status, 302);
+    assert.equal(response.headers.get("location"), "/problems");
+    const html = await response.text();
+    assert.doesNotMatch(html, /data-sync-panel/);
+  });
+});
+
+test("sync panel GET redirects for non-HTMX requests", async () => {
+  await withTestApp(async (app, db) => {
+    const cookie = await signUp(app, db);
+
+    const response = await app.request("/admin/sync/panel?returnTo=%2Fproblems&refreshPage=problems", {
+      headers: { cookie },
+    });
+
+    assert.equal(response.status, 302);
+    assert.equal(response.headers.get("location"), "/problems");
   });
 });
 
@@ -138,7 +174,7 @@ test("sync POST returns panel HTML for HTMX requests", async () => {
   });
 });
 
-test("problems page shows initial sync banner before first successful user sync", async () => {
+test("problems page shows one sync panel before first successful user sync", async () => {
   await withTestApp(async (app, db) => {
     const response = await app.request("/sign-up", {
       method: "POST",
@@ -160,7 +196,9 @@ test("problems page shows initial sync banner before first successful user sync"
     const html = await page.text();
 
     assert.equal(page.status, 200);
-    assert.match(html, /sync-prompt-banner/);
+    assert.match(html, /Not synced yet/);
+    assert.equal((html.match(/class="sync-panel"/g) ?? []).length, 1);
+    assert.doesNotMatch(html, /sync-prompt-banner/);
   });
 });
 

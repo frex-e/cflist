@@ -5,6 +5,16 @@ import { render } from "./render.js";
 
 type ActiveNav = "problems" | "contests" | "sign-in" | "sign-up";
 
+type LayoutAuthOptions = {
+  emailAuthEnabled: boolean;
+};
+
+let layoutAuthOptions: LayoutAuthOptions = { emailAuthEnabled: true };
+
+export const configureLayoutAuth = (options: LayoutAuthOptions): void => {
+  layoutAuthOptions = options;
+};
+
 export const layout = (options: {
   title: string;
   body: Child | string;
@@ -16,6 +26,9 @@ export const layout = (options: {
   const body = typeof options.body === "string" ? raw(options.body) : options.body;
   const activeNav = options.activeNav;
   const scripts = [...(options.scripts ?? [])];
+  if (options.requiresJs && !scripts.includes("/public/infinite-scroll.js")) {
+    scripts.unshift("/public/infinite-scroll.js");
+  }
   if (options.user && !scripts.includes("/public/sync.js")) {
     scripts.push("/public/sync.js");
   }
@@ -55,9 +68,11 @@ export const layout = (options: {
                 <a href="/sign-in" aria-current={activeNav === "sign-in" ? "page" : undefined}>
                   Sign in
                 </a>
-                <a href="/sign-up" aria-current={activeNav === "sign-up" ? "page" : undefined}>
-                  Sign up
-                </a>
+                {layoutAuthOptions.emailAuthEnabled ? (
+                  <a href="/sign-up" aria-current={activeNav === "sign-up" ? "page" : undefined}>
+                    Sign up
+                  </a>
+                ) : null}
               </>
             )}
           </nav>

@@ -1,11 +1,11 @@
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import type { Context } from "hono";
-import { createAuth, type AuthSession, type AuthUser } from "./auth.js";
+import { createAuth, emailAuthEnabled, githubAuthEnabled, needsCfHandle, type AuthSession, type AuthUser } from "./auth.js";
 import type { Db } from "./db/connection.js";
 import { getDefaultFilterQuery, getLatestUserSyncRun } from "./db/queries.js";
 import { kickContestSyncQueue, syncState, syncUserStatus } from "./cf/sync.js";
-import { layout } from "./views/layout.js";
+import { layout, configureLayoutAuth } from "./views/layout.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerContestsRoutes } from "./routes/contests.js";
 import { registerProblemsRoutes } from "./routes/problems.js";
@@ -16,6 +16,9 @@ export type AppConfig = {
   authBaseURL: string;
   authSecret: string;
   authTrustedOrigins: string[];
+  githubClientId?: string;
+  githubClientSecret?: string;
+  authGitHubOnly?: boolean;
   skipInitialSync?: boolean;
 };
 
@@ -49,6 +52,22 @@ const requireUser = (c: AppContext): AuthUser | Response => {
   return c.redirect(`/sign-in?returnTo=${encodeURIComponent(returnTo)}`);
 };
 
+const requireCompleteUser = (c: AppContext): AuthUser | Response => {
+  const user = requireUser(c);
+  if (user instanceof Response) return user;
+  if (!needsCfHandle(user)) return user;
+
+  const requestUrl = new URL(c.req.url);
+  const returnTo = `${requestUrl.pathname}${requestUrl.search}`;
+
+  if (isHtmx(c)) {
+    c.header("HX-Redirect", `/complete-profile?returnTo=${encodeURIComponent(returnTo)}`);
+    return c.text("Profile incomplete", 401);
+  }
+
+  return c.redirect(`/complete-profile?returnTo=${encodeURIComponent(returnTo)}`);
+};
+
 const isHtmx = (c: Context): boolean => c.req.header("hx-request") === "true";
 
 const setCookiesFrom = (headers: Headers, source: Headers): void => {
@@ -64,11 +83,18 @@ const redirectWithAuthCookies = (authResponse: Response, location: string): Resp
 };
 
 export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVariables }> => {
-  const auth = createAuth(db, {
+  const authConfig = {
     baseURL: appConfig.authBaseURL,
     secret: appConfig.authSecret,
     trustedOrigins: [...new Set([appConfig.authBaseURL, ...appConfig.authTrustedOrigins])],
-  });
+    githubClientId: appConfig.githubClientId,
+    githubClientSecret: appConfig.githubClientSecret,
+    githubOnly: appConfig.authGitHubOnly,
+  };
+  const auth = createAuth(db, authConfig);
+  const githubEnabled = githubAuthEnabled(authConfig);
+  const emailEnabled = emailAuthEnabled(authConfig);
+  configureLayoutAuth({ emailAuthEnabled: emailEnabled });
   const app = new Hono<{ Variables: AppVariables }>();
 
   app.use(
@@ -126,6 +152,29 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
     );
   };
 
+  const startGitHubSignIn = async (returnTo: string, origin?: string): Promise<Response> => {
+    const baseOrigin = origin ?? appConfig.authBaseURL;
+    const url = new URL("/api/auth/sign-in/social", baseOrigin);
+    const headers = new Headers({
+      "content-type": "application/json",
+      origin: url.origin,
+    });
+
+    return auth.handler(
+      new Request(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          provider: "github",
+          callbackURL: returnTo,
+          newUserCallbackURL: `/complete-profile?returnTo=${encodeURIComponent(returnTo)}`,
+          errorCallbackURL: "/sign-in",
+          disableRedirect: true,
+        }),
+      }),
+    );
+  };
+
   const authErrorRedirect = async (response: Response, fallback: string): Promise<Response> => {
     const body = await response.json().catch(() => undefined) as { message?: string } | undefined;
     const message = body?.message ?? "Authentication failed";
@@ -174,28 +223,33 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
   });
 
   registerAuthRoutes(app, {
+    githubEnabled,
+    emailEnabled,
+    db,
     proxyAuthForm,
     proxyAuthSignOut,
+    startGitHubSignIn,
     authErrorRedirect,
     redirectWithAuthCookies,
+    maybeStartInitialSync,
   });
 
   registerProblemsRoutes(app, {
     db,
-    requireUser,
+    requireUser: requireCompleteUser,
     defaultFilterParams,
     maybeStartInitialSync,
   });
 
   registerContestsRoutes(app, {
     db,
-    requireUser,
+    requireUser: requireCompleteUser,
     maybeStartInitialSync,
   });
 
   registerSyncRoutes(app, {
     db,
-    requireUser,
+    requireUser: requireCompleteUser,
     runSyncInBackground,
   });
 

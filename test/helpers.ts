@@ -9,13 +9,22 @@ export const createTestDb = (): DatabaseSync => {
   return db;
 };
 
-export const createTestApp = (db: DatabaseSync): ReturnType<typeof createApp> => {
+export const createTestApp = (
+  db: DatabaseSync,
+  options: { github?: boolean } = {},
+): ReturnType<typeof createApp> => {
   return createApp(db, {
     publicRoot: "src/public",
     authBaseURL: "http://localhost",
     authSecret: "test-secret-with-enough-length-32",
     authTrustedOrigins: ["http://localhost"],
     skipInitialSync: true,
+    ...(options.github
+      ? {
+          githubClientId: "test-github-client-id",
+          githubClientSecret: "test-github-client-secret",
+        }
+      : {}),
   });
 };
 

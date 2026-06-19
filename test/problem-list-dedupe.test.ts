@@ -186,7 +186,7 @@ test("contest result listing keeps contest-specific problem placements", () => {
     `,
     ).run({ userId });
 
-    const rows = listUserContestResults(db, userId);
+    const { rows } = listUserContestResults(db, userId);
     const placements = rows.flatMap((row) => row.problems.map((problem) => `${problem.contest_id}${problem.problem_index}`));
 
     assert.deepEqual(placements, ["2220C", "2219A"]);
