@@ -3,18 +3,20 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { createAuth, type AuthSession, type AuthUser } from "./auth.js";
 import type { Db } from "./db/connection.js";
-import { getDefaultFilterQuery } from "./db/queries.js";
+import { getDefaultFilterQuery, getLatestUserSyncRun } from "./db/queries.js";
 import { kickContestSyncQueue, syncState, syncUserStatus } from "./cf/sync.js";
 import { layout } from "./views/layout.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerContestsRoutes } from "./routes/contests.js";
 import { registerProblemsRoutes } from "./routes/problems.js";
+import { registerSyncRoutes } from "./routes/sync.js";
 
 export type AppConfig = {
   publicRoot: string;
   authBaseURL: string;
   authSecret: string;
   authTrustedOrigins: string[];
+  skipInitialSync?: boolean;
 };
 
 type AppVariables = {
@@ -142,12 +144,22 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
     return query ? new URLSearchParams(query) : undefined;
   };
 
-  const runSyncInBackground = (user: AuthUser): void => {
+  const runSyncInBackground = (user: AuthUser): boolean => {
+    if (syncState.userRunning.has(user.id)) return false;
+
     void syncUserStatus(db, user.id, user.cfHandle)
       .then(() => kickContestSyncQueue(db))
       .catch((error) => {
         console.error("Codeforces sync failed:", error);
       });
+
+    return true;
+  };
+
+  const maybeStartInitialSync = (user: AuthUser): boolean => {
+    if (appConfig.skipInitialSync) return false;
+    if (getLatestUserSyncRun(db, user.id)) return false;
+    return runSyncInBackground(user);
   };
 
   app.get("/", (c) => c.redirect(c.get("user") ? "/problems" : "/sign-in"));
@@ -171,14 +183,20 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
   registerProblemsRoutes(app, {
     db,
     requireUser,
-    isHtmx,
     defaultFilterParams,
-    runSyncInBackground,
+    maybeStartInitialSync,
   });
 
   registerContestsRoutes(app, {
     db,
     requireUser,
+    maybeStartInitialSync,
+  });
+
+  registerSyncRoutes(app, {
+    db,
+    requireUser,
+    runSyncInBackground,
   });
 
   app.notFound((c) => c.html(notFoundPage(c.get("user")), 404));

@@ -7,11 +7,9 @@ import { ratingTitle } from "./rating.js";
 import { render } from "./render.js";
 import { SyncPanel } from "./sync-panel.js";
 import {
-  fragmentSwapAttrs,
   fragmentUrl,
-  pagerData,
+  pageNav,
   problemListUrl,
-  type PagerData,
   type ProblemsPageOptions,
 } from "./problems/url.js";
 
@@ -54,8 +52,8 @@ const sourceLabel = (row: ProblemRow): string => {
   return "unsolved";
 };
 
-const StatusControl = (props: { row: ProblemRow; returnTo: string }) => {
-  const { row, returnTo } = props;
+const StatusControl = (props: { row: ProblemRow }) => {
+  const { row } = props;
   const action = `/problems/${row.contest_id}/${encodeURIComponent(row.problem_index)}/override`;
 
   if (row.cf_solved === 1) {
@@ -70,7 +68,6 @@ const StatusControl = (props: { row: ProblemRow; returnTo: string }) => {
   return (
     <form class="status-form" method="post" action={action} hx-post={action} hx-target="#problem-list" hx-swap="outerHTML">
       <input type="hidden" name="solvedOverride" value={isManualSolved ? "" : "1"} />
-      <input type="hidden" name="returnTo" value={returnTo} />
       <button
         class={`status status-button ${isManualSolved ? "solved manual-solved" : "unsolved"}`}
         type="submit"
@@ -82,12 +79,8 @@ const StatusControl = (props: { row: ProblemRow; returnTo: string }) => {
   );
 };
 
-const ProblemRow = (props: {
-  row: ProblemRow;
-  showTags: boolean;
-  returnTo: string;
-}) => {
-  const { row, showTags, returnTo } = props;
+const ProblemRow = (props: { row: ProblemRow; showTags: boolean }) => {
+  const { row, showTags } = props;
   const tags = tagsForRow(row);
   const problemId = `${row.contest_id}${row.problem_index}`;
   const title = ratingTitle(row.rating);
@@ -101,7 +94,7 @@ const ProblemRow = (props: {
       data-problem-index={row.problem_index}
     >
       <td data-status-cell>
-        <StatusControl row={row} returnTo={returnTo} />
+        <StatusControl row={row} />
       </td>
       <td class="mono">
         <a href={problemHref} rel="noreferrer" target="_blank">
@@ -154,9 +147,6 @@ const FilterForm = ({ filters, options }: ProblemsPageOptions) => {
       hx-trigger="submit, change delay:100ms, input changed delay:300ms"
     >
       <div class="filter-actions filter-actions-top">
-        <noscript>
-          <button type="submit">Apply</button>
-        </noscript>
         <a
           class="button secondary"
           href="/problems?default=0"
@@ -165,9 +155,7 @@ const FilterForm = ({ filters, options }: ProblemsPageOptions) => {
         </a>
         <button
           class="button secondary"
-          type="submit"
-          formmethod="post"
-          formaction="/preferences/default-filters"
+          type="button"
           data-filter-save-default
         >
           Set default
@@ -303,35 +291,26 @@ const FilterForm = ({ filters, options }: ProblemsPageOptions) => {
   );
 };
 
-const SyncPanelAside = (options: ProblemsPageOptions) => (
-  <SyncPanel
-    latestSync={options.latestSync}
-    syncRunning={options.syncRunning}
-    returnTo={problemListUrl(options.filters, options.filters.page)}
-  />
-);
+const SyncPanelAside = (options: ProblemsPageOptions) => <SyncPanel {...options.syncPanel} />;
 
-const Pager = ({ prev, next, oob }: { prev: string; next: string; oob?: boolean }) => {
-  const prevAttrs = prev ? fragmentSwapAttrs(prev) : undefined;
-  const nextAttrs = next ? fragmentSwapAttrs(next) : undefined;
+const SyncPromptBanner = (options: ProblemsPageOptions) => {
+  if (options.syncPanel.hasSuccessfulSync) return null;
 
   return (
-    <div class="pager" id="problem-pager" hx-swap-oob={oob ? "true" : undefined}>
-      {prev ? (
-        <a class="button secondary" href={prev} {...prevAttrs}>
-          Previous
-        </a>
-      ) : (
-        <span class="button disabled">Previous</span>
-      )}
-      {next ? (
-        <a class="button secondary" href={next} {...nextAttrs}>
-          Next
-        </a>
-      ) : (
-        <span class="button disabled">Next</span>
-      )}
-    </div>
+    <section class="sync-prompt-banner" aria-label="Initial sync">
+      <p>Sync your Codeforces account to load solved status and contest history.</p>
+      <form
+        method="post"
+        action="/admin/sync"
+        hx-post="/admin/sync"
+        hx-target="[data-sync-panel]"
+        hx-swap="outerHTML"
+      >
+        <input type="hidden" name="returnTo" value={problemListUrl(options.filters, options.filters.page)} />
+        <input type="hidden" name="refreshPage" value="problems" />
+        <button type="submit" class="button">Sync now</button>
+      </form>
+    </section>
   );
 };
 
@@ -352,8 +331,8 @@ const LoadMore = ({ next }: { next: string }) => {
   );
 };
 
-const ProblemRows = (props: ProblemsPageOptions & { pager: PagerData }) => {
-  const { result, filters, pager } = props;
+const ProblemRows = (props: ProblemsPageOptions) => {
+  const { result, filters } = props;
 
   if (!result.rows.length) {
     return (
@@ -368,11 +347,7 @@ const ProblemRows = (props: ProblemsPageOptions & { pager: PagerData }) => {
   return (
     <>
       {result.rows.map((row) => (
-        <ProblemRow
-          row={row}
-          showTags={filters.showTags}
-          returnTo={pager.returnTo}
-        />
+        <ProblemRow row={row} showTags={filters.showTags} />
       ))}
     </>
   );
@@ -391,7 +366,7 @@ const rangeLabel = (filters: ProblemsPageOptions["filters"], total: number, appe
 
 const ProblemsListFragment = (options: ProblemsPageOptions) => {
   const { result, filters } = options;
-  const pager = pagerData(filters, result.total);
+  const nav = pageNav(filters, result.total);
 
   return (
     <section id="problem-list" class="table-wrap">
@@ -399,7 +374,6 @@ const ProblemsListFragment = (options: ProblemsPageOptions) => {
         <span id="problem-page-label" data-page-label>
           {rangeLabel(filters, result.total)}
         </span>
-        <Pager prev={pager.prev} next={pager.next} />
       </div>
       <table>
         <thead>
@@ -414,10 +388,10 @@ const ProblemsListFragment = (options: ProblemsPageOptions) => {
           </tr>
         </thead>
         <tbody id="problem-rows" data-problem-rows>
-          <ProblemRows {...options} pager={pager} />
+          <ProblemRows {...options} />
         </tbody>
       </table>
-      <LoadMore next={pager.next} />
+      <LoadMore next={nav.next} />
     </section>
   );
 };
@@ -426,14 +400,8 @@ export const problemsListFragment = (options: ProblemsPageOptions): string => re
 
 export const problemsAppendFragment = (options: ProblemsPageOptions): string => {
   const { result, filters } = options;
-  const pager = pagerData(filters, result.total);
-  const rows = result.rows.map((row) => (
-      <ProblemRow
-        row={row}
-        showTags={filters.showTags}
-        returnTo={pager.returnTo}
-      />
-  ));
+  const nav = pageNav(filters, result.total);
+  const rows = result.rows.map((row) => <ProblemRow row={row} showTags={filters.showTags} />);
 
   return render(
     <>
@@ -445,11 +413,10 @@ export const problemsAppendFragment = (options: ProblemsPageOptions): string => 
       <span id="problem-page-label" data-page-label hx-swap-oob="true">
         {rangeLabel(filters, result.total, true)}
       </span>
-      <Pager prev={pager.prev} next={pager.next} oob />
       <p id="problem-summary" data-problem-summary hx-swap-oob="true">
         {problemSummaryText(options)}
       </p>
-      <LoadMore next={pager.next} />
+      <LoadMore next={nav.next} />
     </>,
   );
 };
@@ -459,6 +426,7 @@ export const problemsPage = (options: ProblemsPageOptions): string => {
     title: "CFList Problems",
     user: options.user,
     activeNav: "problems",
+    requiresJs: true,
     scripts: ["/public/filters.js"],
     body: (
       <>
@@ -467,6 +435,7 @@ export const problemsPage = (options: ProblemsPageOptions): string => {
           subtitle={<p id="problem-summary" data-problem-summary>{problemSummaryText(options)}</p>}
           aside={<SyncPanelAside {...options} />}
         />
+        <SyncPromptBanner {...options} />
         <div class="workspace">
           <FilterForm {...options} />
           <ProblemsListFragment {...options} />

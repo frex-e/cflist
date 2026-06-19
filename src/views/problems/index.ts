@@ -1,9 +1,8 @@
 export {
-  fragmentSwapAttrs,
   fragmentUrl,
-  pagerData,
+  pageNav,
   problemListQuery,
   problemListUrl,
-  type PagerData,
+  type PageNav,
   type ProblemsPageOptions,
 } from "./url.js";

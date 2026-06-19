@@ -1,21 +1,18 @@
 import type { AuthUser } from "../../auth.js";
 import type { FilterOptions, ListResult, ProblemFilters } from "../../db/queries.js";
 import { defaultSortDirection } from "../../db/queries.js";
+import type { SyncPanelOptions } from "../sync-panel.js";
 
 export type ProblemsPageOptions = {
   filters: ProblemFilters;
   options: FilterOptions;
   result: ListResult;
-  latestSync?: { started_at: string; finished_at: string | null; status: string; message: string | null };
-  syncRunning: boolean;
+  syncPanel: SyncPanelOptions;
   user: AuthUser;
 };
 
-export type PagerData = {
-  totalPages: number;
-  prev: string;
+export type PageNav = {
   next: string;
-  returnTo: string;
 };
 
 export const problemListUrl = (filters: ProblemFilters, page: number): string => {
@@ -51,20 +48,9 @@ export const fragmentUrl = (url: string, extra?: Record<string, string>): string
   return `${parsed.pathname}${parsed.search}`;
 };
 
-export const pagerData = (filters: ProblemFilters, total: number): PagerData => {
+export const pageNav = (filters: ProblemFilters, total: number): PageNav => {
   const totalPages = Math.max(1, Math.ceil(total / filters.pageSize));
   return {
-    totalPages,
-    prev: filters.page > 1 ? problemListUrl(filters, filters.page - 1) : "",
     next: filters.page < totalPages ? problemListUrl(filters, filters.page + 1) : "",
-    returnTo: problemListUrl(filters, filters.page),
   };
 };
-
-export const fragmentSwapAttrs = (href: string): Record<string, string> => ({
-  "hx-get": fragmentUrl(href),
-  "hx-target": "#problem-list",
-  "hx-swap": "outerHTML",
-  "hx-push-url": "true",
-  "hx-indicator": "#problem-list",
-});

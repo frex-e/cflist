@@ -11,11 +11,10 @@ import { getCachedStandings } from "./cache.js";
 import { syncCatalog } from "./catalog.js";
 import { enqueueContestHydrationJobs } from "./contest-queue.js";
 import { recomputeExistingUpsolvesForUser } from "./contest-hydration.js";
-import { contestSortValue, ensureContestsExist, loadContestsById, now } from "./helpers.js";
+import { contestSortValue, ensureContestsExist, loadContestsById, missingContestIds, now } from "./helpers.js";
 import { syncState } from "./state.js";
 
 const MAX_CONTEST_RESULTS_ENQUEUE = 30;
-const MAX_CONTEST_RESULTS_BACKFILL_ENQUEUE = 3;
 
 const maybeSyncCatalog = async (db: Db, client: CodeforcesClient): Promise<void> => {
   const maxAgeMs = config.syncIntervalMinutes * 60 * 1000;
@@ -118,9 +117,9 @@ export const syncUserStatus = async (
   try {
     await maybeSyncCatalog(db, client);
 
-    const contestsById = loadContestsById(db);
+    let contestsById = loadContestsById(db);
     const submissions = await client.userStatus(cfHandle);
-    const accepted = acceptedProblemsFromSubmissions(submissions, contestsById);
+    let accepted = acceptedProblemsFromSubmissions(submissions, contestsById);
     const ratingHistory = await client.userRating(cfHandle);
     const ratingsByContestId = new Map(ratingHistory.map((change) => [change.contestId, change]));
     const candidateContestIds = new Set(ratingHistory.map((change) => change.contestId));
@@ -128,11 +127,21 @@ export const syncUserStatus = async (
       candidateContestIds.add(item.contestId);
     }
 
+    if (missingContestIds(candidateContestIds, contestsById).length > 0) {
+      await syncCatalog(db, client);
+      contestsById = loadContestsById(db);
+      accepted = acceptedProblemsFromSubmissions(submissions, contestsById);
+      for (const item of accepted.values()) {
+        candidateContestIds.add(item.contestId);
+      }
+    }
+
     const checkedAt = now();
     ensureContestsExist(db, [...candidateContestIds], ratingsByContestId, contestsById, checkedAt);
 
     const sortedCandidateContestIds = [...candidateContestIds]
       .sort((a, b) => contestSortValue(contestsById.get(b), ratingsByContestId.get(b)) - contestSortValue(contestsById.get(a), ratingsByContestId.get(a)));
+    const rankByContestId = new Map(sortedCandidateContestIds.map((contestId, rank) => [contestId, rank]));
     const problemCountsByContestId = completedContestProblemCounts(db, userId);
     const completedContestIds = new Set(
       [...problemCountsByContestId.entries()]
@@ -143,8 +152,7 @@ export const syncUserStatus = async (
     const recentContestIdSet = new Set(recentContestIds);
     const backfillContestIds = sortedCandidateContestIds
       .slice(MAX_CONTEST_RESULTS_ENQUEUE)
-      .filter((contestId) => !recentContestIdSet.has(contestId) && !completedContestIds.has(contestId))
-      .slice(0, MAX_CONTEST_RESULTS_BACKFILL_ENQUEUE);
+      .filter((contestId) => !recentContestIdSet.has(contestId) && !completedContestIds.has(contestId));
 
     const clearStatus = db.prepare("DELETE FROM user_problem_status WHERE user_id = @userId");
     const insertStatus = db.prepare(`
@@ -207,8 +215,22 @@ export const syncUserStatus = async (
       const job = contestJobStatus.get({ userId, contestId }) as { status: string } | undefined;
       return job?.status !== "done";
     });
-    const enqueuedRecent = enqueueContestHydrationJobs(db, userId, cfHandle, hydrateRecentContestIds, 0);
-    const enqueuedBackfill = enqueueContestHydrationJobs(db, userId, cfHandle, backfillContestIds, 1000);
+    const toHydrationJob = (contestId: number) => ({
+      contestId,
+      priority: rankByContestId.get(contestId)!,
+    });
+    const enqueuedRecent = enqueueContestHydrationJobs(
+      db,
+      userId,
+      cfHandle,
+      hydrateRecentContestIds.map(toHydrationJob),
+    );
+    const enqueuedBackfill = enqueueContestHydrationJobs(
+      db,
+      userId,
+      cfHandle,
+      backfillContestIds.map(toHydrationJob),
+    );
     const enqueuedContestResults = enqueuedRecent + enqueuedBackfill;
 
     finishSyncRun(

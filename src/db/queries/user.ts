@@ -54,6 +54,21 @@ export const getLatestUserSyncRun = (
     .get({ userId }) as { started_at: string; finished_at: string | null; status: string; message: string | null } | undefined;
 };
 
+export const hasSuccessfulUserSyncRun = (db: Db, userId: string): boolean => {
+  const row = db
+    .prepare(
+      `
+      SELECT 1 AS found
+      FROM sync_runs
+      WHERE source = 'codeforces:user' AND user_id = @userId AND status = 'success'
+      LIMIT 1
+    `,
+    )
+    .get({ userId }) as { found: number } | undefined;
+
+  return Boolean(row);
+};
+
 export const problemCount = (db: Db): number => {
   const row = db.prepare("SELECT COUNT(*) AS count FROM problems").get() as { count: number };
   return row.count;

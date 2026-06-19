@@ -10,12 +10,7 @@ import { CodeforcesClient } from "../client.js";
 import { codeforcesProblemUrl, now } from "./helpers.js";
 import { syncState } from "./state.js";
 
-export const syncCatalog = async (
-  db: Db,
-  client = new CodeforcesClient(),
-): Promise<void> => {
-  if (syncState.catalogRunning) return;
-
+const runCatalogSync = async (db: Db, client: CodeforcesClient): Promise<void> => {
   syncState.catalogRunning = true;
   syncState.lastCatalogStartedAt = now();
   syncState.lastCatalogError = undefined;
@@ -136,5 +131,21 @@ export const syncCatalog = async (
     throw error;
   } finally {
     syncState.catalogRunning = false;
+  }
+};
+
+export const syncCatalog = async (
+  db: Db,
+  client = new CodeforcesClient(),
+): Promise<void> => {
+  if (syncState.catalogSyncPromise) {
+    return syncState.catalogSyncPromise;
+  }
+
+  syncState.catalogSyncPromise = runCatalogSync(db, client);
+  try {
+    await syncState.catalogSyncPromise;
+  } finally {
+    syncState.catalogSyncPromise = null;
   }
 };

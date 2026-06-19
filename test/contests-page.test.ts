@@ -63,7 +63,7 @@ const withApp = async (fn: (app: ReturnType<typeof createApp>, db: DatabaseSync)
   }
 };
 
-const signUp = async (app: ReturnType<typeof createApp>): Promise<string> => {
+const signUp = async (app: ReturnType<typeof createApp>, db: DatabaseSync): Promise<string> => {
   const response = await app.request("/sign-up", {
     method: "POST",
     headers: {
@@ -78,12 +78,21 @@ const signUp = async (app: ReturnType<typeof createApp>): Promise<string> => {
   });
 
   assert.equal(response.status, 303);
+
+  const user = db.prepare(`SELECT id FROM "user" WHERE email = 'user@example.com'`).get() as { id: string };
+  db.prepare(
+    `
+    INSERT INTO sync_runs (started_at, finished_at, status, source, user_id, cf_handle, message)
+    VALUES ('2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'success', 'codeforces:user', @userId, 'inj', 'test')
+  `,
+  ).run({ userId: user.id });
+
   return response.headers.get("set-cookie") ?? "";
 };
 
 test("contests page renders rating, performance, and problem outcome pills", async () => {
   await withApp(async (app, db) => {
-    const cookie = await signUp(app);
+    const cookie = await signUp(app, db);
     const user = db.prepare(`SELECT id FROM "user" WHERE email = 'user@example.com'`).get() as { id: string };
 
     db.prepare(

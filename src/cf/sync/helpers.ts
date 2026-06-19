@@ -31,6 +31,11 @@ export const loadContestsById = (db: Db): Map<number, CfContest> => {
   return new Map(contestRows.map((contest) => [contest.id, contest]));
 };
 
+export const missingContestIds = (
+  contestIds: Iterable<number>,
+  contestsById: Map<number, CfContest>,
+): number[] => [...new Set(contestIds)].filter((contestId) => !contestsById.has(contestId));
+
 export const ensureContestsExist = (
   db: Db,
   contestIds: number[],

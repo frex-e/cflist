@@ -50,7 +50,9 @@ const seedProblem = (db: DatabaseSync): void => {
   ).run();
 };
 
-const withSeededApp = async (fn: (app: ReturnType<typeof createApp>) => Promise<void>): Promise<void> => {
+const withSeededApp = async (
+  fn: (app: ReturnType<typeof createApp>, db: DatabaseSync) => Promise<void>,
+): Promise<void> => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
   migrate(db);
@@ -63,13 +65,17 @@ const withSeededApp = async (fn: (app: ReturnType<typeof createApp>) => Promise<
       authSecret: "test-secret-with-enough-length-32",
       authTrustedOrigins: ["http://localhost"],
     });
-    await fn(app);
+    await fn(app, db);
   } finally {
     db.close();
   }
 };
 
-const signUp = async (app: ReturnType<typeof createApp>, email = "user@example.com"): Promise<string> => {
+const signUp = async (
+  app: ReturnType<typeof createApp>,
+  db: DatabaseSync,
+  email = "user@example.com",
+): Promise<string> => {
   const response = await app.request("/sign-up", {
     method: "POST",
     headers: {
@@ -84,22 +90,31 @@ const signUp = async (app: ReturnType<typeof createApp>, email = "user@example.c
   });
 
   assert.equal(response.status, 303);
+
+  const user = db.prepare(`SELECT id FROM "user" WHERE email = @email`).get({ email }) as { id: string };
+  db.prepare(
+    `
+    INSERT INTO sync_runs (started_at, finished_at, status, source, user_id, cf_handle, message)
+    VALUES ('2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'success', 'codeforces:user', @userId, 'tourist', 'test')
+  `,
+  ).run({ userId: user.id });
+
   return response.headers.get("set-cookie") ?? "";
 };
 
 test("manual solved HTMX response swaps the list instead of a bare table row", async () => {
-  await withSeededApp(async (app) => {
-    const cookie = await signUp(app);
+  await withSeededApp(async (app, db) => {
+    const cookie = await signUp(app, db);
     const response = await app.request("/problems/1/A/override", {
       method: "POST",
       headers: {
         "content-type": "application/x-www-form-urlencoded",
         "hx-request": "true",
+        "hx-current-url": "http://localhost/problems?solved=unsolved",
         cookie,
       },
       body: new URLSearchParams({
         solvedOverride: "1",
-        returnTo: "/problems?solved=unsolved",
       }).toString(),
     });
 
@@ -113,8 +128,8 @@ test("manual solved HTMX response swaps the list instead of a bare table row", a
 });
 
 test("problem links point to the contest problem page", async () => {
-  await withSeededApp(async (app) => {
-    const cookie = await signUp(app);
+  await withSeededApp(async (app, db) => {
+    const cookie = await signUp(app, db);
     const response = await app.request("/problems", {
       headers: { cookie },
     });
@@ -127,8 +142,8 @@ test("problem links point to the contest problem page", async () => {
 });
 
 test("bare problems page uses saved default filters when no query params are present", async () => {
-  await withSeededApp(async (app) => {
-    const authCookie = await signUp(app);
+  await withSeededApp(async (app, db) => {
+    const authCookie = await signUp(app, db);
     const saveResponse = await app.request("/preferences/default-filters", {
       method: "POST",
       headers: {
@@ -154,31 +169,29 @@ test("bare problems page uses saved default filters when no query params are pre
   });
 });
 
-test("default filter save works as a normal form post", async () => {
-  await withSeededApp(async (app) => {
-    const authCookie = await signUp(app);
+test("default filter save works from the problems page", async () => {
+  await withSeededApp(async (app, db) => {
+    const authCookie = await signUp(app, db);
     const formPage = await app.request("/problems?solved=unsolved", {
       headers: { cookie: authCookie },
     });
     const formHtml = await formPage.text();
 
     assert.equal(formPage.status, 200);
-    assert.match(formHtml, /formmethod="post"/);
-    assert.match(formHtml, /formaction="\/preferences\/default-filters"/);
     assert.match(formHtml, /data-filter-save-default/);
+    assert.doesNotMatch(formHtml, /formmethod="post"/);
 
     const saveResponse = await app.request("/preferences/default-filters", {
       method: "POST",
       headers: {
         "content-type": "application/x-www-form-urlencoded",
-        accept: "text/html",
         cookie: authCookie,
       },
       body: new URLSearchParams({ solved: "unsolved" }).toString(),
     });
 
-    assert.equal(saveResponse.status, 302);
-    assert.equal(saveResponse.headers.get("location"), "/problems");
+    assert.equal(saveResponse.status, 200);
+    assert.equal(await saveResponse.text(), "Default saved");
 
     const defaultResponse = await app.request("/problems", {
       headers: { cookie: authCookie },
@@ -191,8 +204,8 @@ test("default filter save works as a normal form post", async () => {
 });
 
 test("default filter save overwrites an existing default", async () => {
-  await withSeededApp(async (app) => {
-    const authCookie = await signUp(app);
+  await withSeededApp(async (app, db) => {
+    const authCookie = await signUp(app, db);
 
     const firstSave = await app.request("/preferences/default-filters", {
       method: "POST",
@@ -226,8 +239,8 @@ test("default filter save overwrites an existing default", async () => {
 });
 
 test("default filter save preserves multiple selected divisions", async () => {
-  await withSeededApp(async (app) => {
-    const authCookie = await signUp(app);
+  await withSeededApp(async (app, db) => {
+    const authCookie = await signUp(app, db);
     const saveResponse = await app.request("/preferences/default-filters", {
       method: "POST",
       headers: {
@@ -253,8 +266,8 @@ test("default filter save preserves multiple selected divisions", async () => {
 });
 
 test("reset bypasses saved defaults so they can be cleared", async () => {
-  await withSeededApp(async (app) => {
-    const authCookie = await signUp(app);
+  await withSeededApp(async (app, db) => {
+    const authCookie = await signUp(app, db);
     const saveResponse = await app.request("/preferences/default-filters", {
       method: "POST",
       headers: {
@@ -295,19 +308,20 @@ test("reset bypasses saved defaults so they can be cleared", async () => {
 });
 
 test("manual overrides are scoped to the authenticated user", async () => {
-  await withSeededApp(async (app) => {
-    const firstCookie = await signUp(app, "first@example.com");
-    const secondCookie = await signUp(app, "second@example.com");
+  await withSeededApp(async (app, db) => {
+    const firstCookie = await signUp(app, db, "first@example.com");
+    const secondCookie = await signUp(app, db, "second@example.com");
 
     const overrideResponse = await app.request("/problems/1/A/override", {
       method: "POST",
       headers: {
         "content-type": "application/x-www-form-urlencoded",
+        "hx-current-url": "http://localhost/problems",
         cookie: firstCookie,
       },
-      body: new URLSearchParams({ solvedOverride: "1", returnTo: "/problems" }).toString(),
+      body: new URLSearchParams({ solvedOverride: "1" }).toString(),
     });
-    assert.equal(overrideResponse.status, 302);
+    assert.equal(overrideResponse.status, 200);
 
     const firstPage = await app.request("/problems?solved=solved", {
       headers: { cookie: firstCookie },

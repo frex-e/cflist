@@ -16,12 +16,16 @@ type ContestJob = {
   attempts: number;
 };
 
+export type ContestHydrationJob = {
+  contestId: number;
+  priority: number;
+};
+
 export const enqueueContestHydrationJobs = (
   db: Db,
   userId: string,
   cfHandle: string,
-  contestIds: number[],
-  priorityOffset: number,
+  jobs: ContestHydrationJob[],
 ): number => {
   const timestamp = now();
   const upsert = db.prepare(`
@@ -67,18 +71,18 @@ export const enqueueContestHydrationJobs = (
 
   let changedRows = 0;
   transaction(db, () => {
-    contestIds.forEach((contestId, index) => {
+    for (const job of jobs) {
       const result = upsert.run({
         userId,
         cfHandle,
-        contestId,
-        priority: priorityOffset + index,
+        contestId: job.contestId,
+        priority: job.priority,
         availableAt: timestamp,
         createdAt: timestamp,
         updatedAt: timestamp,
       });
       changedRows += Number(result.changes);
-    });
+    }
   });
 
   return changedRows;

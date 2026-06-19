@@ -15,11 +15,13 @@ export const createTestApp = (db: DatabaseSync): ReturnType<typeof createApp> =>
     authBaseURL: "http://localhost",
     authSecret: "test-secret-with-enough-length-32",
     authTrustedOrigins: ["http://localhost"],
+    skipInitialSync: true,
   });
 };
 
 export const signUp = async (
   app: ReturnType<typeof createApp>,
+  db?: DatabaseSync,
   email = "user@example.com",
   cfHandle = "tourist",
 ): Promise<string> => {
@@ -39,6 +41,17 @@ export const signUp = async (
   if (response.status !== 303) {
     throw new Error(`Sign up failed with status ${response.status}`);
   }
+
+  if (db) {
+    const user = db.prepare(`SELECT id FROM "user" WHERE email = @email`).get({ email }) as { id: string };
+    db.prepare(
+      `
+      INSERT INTO sync_runs (started_at, finished_at, status, source, user_id, cf_handle, message)
+      VALUES ('2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'success', 'codeforces:user', @userId, @cfHandle, 'test')
+    `,
+    ).run({ userId: user.id, cfHandle });
+  }
+
   return response.headers.get("set-cookie") ?? "";
 };
 

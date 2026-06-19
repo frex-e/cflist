@@ -7,6 +7,7 @@ import { enqueueContestHydrationJobs } from "../src/cf/sync/contest-queue.js";
 import type { CfContest, CfProblemset, CfRatingChange, CfStandings, CfSubmission } from "../src/cf/types.js";
 import { migrate } from "../src/db/migrate.js";
 
+const recentCatalogSyncAt = new Date(Date.now() - 60_000).toISOString();
 const userId = "user-1";
 const cfHandle = "inj";
 
@@ -253,8 +254,74 @@ class UpsolveOnlyClient extends FakeClient {
   }
 }
 
-class StaleCatalogClient extends FakeClient {
+class CatalogCatchUpClient extends FakeClient {
+  contestsCalls = 0;
+
   async contests(): Promise<CfContest[]> {
+    this.contestsCalls += 1;
+    return [
+      {
+        id: 100,
+        name: "Codeforces Round 100 (Div. 2)",
+        phase: "FINISHED",
+        startTimeSeconds: 1000,
+        durationSeconds: 7200,
+      },
+      {
+        id: 200,
+        name: "Codeforces Round 200 (Div. 2)",
+        phase: "FINISHED",
+        startTimeSeconds: 2_000_000,
+        durationSeconds: 7200,
+      },
+    ];
+  }
+
+  async problemset(): Promise<CfProblemset> {
+    return {
+      problems: [
+        { contestId: 100, index: "A", name: "A", tags: [] },
+        { contestId: 200, index: "A", name: "Problem 200A", tags: [] },
+      ],
+      problemStatistics: [
+        { contestId: 100, index: "A", solvedCount: 100 },
+        { contestId: 200, index: "A", solvedCount: 50 },
+      ],
+    };
+  }
+
+  async userRating(): Promise<CfRatingChange[]> {
+    return [
+      {
+        contestId: 200,
+        contestName: "Codeforces Round 200 (Div. 2)",
+        handle: cfHandle,
+        rank: 10,
+        ratingUpdateTimeSeconds: 2_000_000,
+        oldRating: 1500,
+        newRating: 1510,
+      },
+    ];
+  }
+
+  async userStatus(): Promise<CfSubmission[]> {
+    return [];
+  }
+
+  async contestRatingChanges(): Promise<CfRatingChange[]> {
+    throw new Error("contest hydration should not run in catalog catch-up test");
+  }
+
+  async contestStandings(): Promise<CfStandings> {
+    throw new Error("contest hydration should not run in catalog catch-up test");
+  }
+}
+
+class StaleCatalogClient extends FakeClient {
+  contestsCalls = 0;
+
+  async contests(): Promise<CfContest[]> {
+    this.contestsCalls += 1;
     return [];
   }
 
@@ -480,7 +547,7 @@ test("contest queue finishes noop hydration jobs instead of requeuing forever", 
   try {
     const client = new NoopHydrationClient();
     await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
-    enqueueContestHydrationJobs(db, userId, cfHandle, [100], 0);
+    enqueueContestHydrationJobs(db, userId, cfHandle, [{ contestId: 100, priority: 0 }]);
     await runContestSyncQueue(db, client as unknown as CodeforcesClient);
 
     const job = db
@@ -524,7 +591,7 @@ test("user sync keeps completed contest jobs done unless hydration is incomplete
   }
 });
 
-test("user sync upserts contest stubs from rating when catalog is stale", async () => {
+test("user sync forces catalog refresh when user data references missing contests", async () => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
   migrate(db);
@@ -535,6 +602,107 @@ test("user sync upserts contest stubs from rating when catalog is stale", async 
     VALUES (100, 'Old contest', '{}', '2026-01-01T00:00:00.000Z')
   `,
   ).run();
+  db.prepare(
+    `
+    INSERT INTO problems (
+      contest_id,
+      problem_index,
+      name,
+      rating,
+      solved_count,
+      tags_json,
+      url,
+      raw_json,
+      updated_at
+    ) VALUES (
+      100,
+      'A',
+      'A',
+      800,
+      1,
+      '[]',
+      'https://codeforces.com/contest/100/problem/A',
+      '{}',
+      '2026-01-01T00:00:00.000Z'
+    )
+  `,
+  ).run();
+  db.prepare(
+    `
+    INSERT INTO sync_runs (started_at, finished_at, status, source, message)
+    VALUES (@finishedAt, @finishedAt, 'success', 'codeforces:catalog', 'fresh')
+  `,
+  ).run({ finishedAt: recentCatalogSyncAt });
+  syncState.catalogRunning = false;
+  syncState.userRunning.clear();
+  syncState.contestQueueRunning = false;
+
+  try {
+    const client = new CatalogCatchUpClient();
+    await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
+
+    const contest = db
+      .prepare("SELECT id, name, derived_family, duration_seconds FROM contests WHERE id = 200")
+      .get() as { id: number; name: string; derived_family: string | null; duration_seconds: number | null };
+    const contestRows = db.prepare("SELECT COUNT(*) AS count FROM user_contest_results").get() as { count: number };
+    const problemRows = db.prepare("SELECT COUNT(*) AS count FROM problems WHERE contest_id = 200").get() as { count: number };
+
+    assert.equal(client.contestsCalls, 1);
+    assert.equal(contest.id, 200);
+    assert.equal(contest.name, "Codeforces Round 200 (Div. 2)");
+    assert.equal(contest.derived_family, "Codeforces Round");
+    assert.equal(contest.duration_seconds, 7200);
+    assert.equal(contestRows.count, 1);
+    assert.equal(problemRows.count, 1);
+  } finally {
+    db.close();
+    syncState.userRunning.clear();
+    syncState.contestQueueRunning = false;
+  }
+});
+
+test("user sync falls back to contest stubs when catalog refresh still misses a contest", async () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+  insertUser(db);
+  db.prepare(
+    `
+    INSERT INTO contests (id, name, raw_json, updated_at)
+    VALUES (100, 'Old contest', '{}', '2026-01-01T00:00:00.000Z')
+  `,
+  ).run();
+  db.prepare(
+    `
+    INSERT INTO problems (
+      contest_id,
+      problem_index,
+      name,
+      rating,
+      solved_count,
+      tags_json,
+      url,
+      raw_json,
+      updated_at
+    ) VALUES (
+      100,
+      'A',
+      'A',
+      800,
+      1,
+      '[]',
+      'https://codeforces.com/contest/100/problem/A',
+      '{}',
+      '2026-01-01T00:00:00.000Z'
+    )
+  `,
+  ).run();
+  db.prepare(
+    `
+    INSERT INTO sync_runs (started_at, finished_at, status, source, message)
+    VALUES (@finishedAt, @finishedAt, 'success', 'codeforces:catalog', 'fresh')
+  `,
+  ).run({ finishedAt: recentCatalogSyncAt });
   syncState.catalogRunning = false;
   syncState.userRunning.clear();
   syncState.contestQueueRunning = false;
@@ -550,6 +718,7 @@ test("user sync upserts contest stubs from rating when catalog is stale", async 
 
     assert.equal(contest.id, 200);
     assert.equal(contest.name, "Codeforces Round 200 (Div. 2)");
+    assert.equal(client.contestsCalls, 1);
     assert.equal(contestRows.count, 1);
   } finally {
     db.close();
@@ -672,7 +841,7 @@ test("contest hydration falls back to accepted submissions when standings row is
   }
 });
 
-test("user sync backfills a few older unsynced contests on each refresh", async () => {
+test("user sync enqueues all older unsynced contests on refresh", async () => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
   migrate(db);
@@ -687,23 +856,17 @@ test("user sync backfills a few older unsynced contests on each refresh", async 
     let contestRows = db.prepare("SELECT COUNT(*) AS count FROM user_contest_results").get() as { count: number };
     let queuedRows = db.prepare("SELECT COUNT(*) AS count FROM contest_sync_jobs WHERE status = 'queued'").get() as { count: number };
     assert.equal(contestRows.count, 35);
-    assert.equal(queuedRows.count, 33);
+    assert.equal(queuedRows.count, 35);
     assert.deepEqual(client.standingsCalls, []);
 
-    await runContestSyncQueue(db, client as unknown as CodeforcesClient);
-    assert.deepEqual(client.standingsCalls.slice().sort((a, b) => b - a), [
-      35, 34, 33, 32, 31, 30, 29, 28, 27, 26,
-      25, 24, 23, 22, 21, 20, 19, 18, 17, 16,
-      15, 14, 13, 12, 11, 10, 9, 8, 7, 6,
-      5, 4, 3,
-    ]);
+    const priorityRows = db
+      .prepare("SELECT contest_id, priority FROM contest_sync_jobs ORDER BY priority ASC")
+      .all() as { contest_id: number; priority: number }[];
+    assert.equal(priorityRows[0]?.contest_id, 35);
+    assert.equal(priorityRows[0]?.priority, 0);
+    assert.equal(priorityRows.at(-1)?.contest_id, 1);
+    assert.equal(priorityRows.at(-1)?.priority, 34);
 
-    await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
-
-    contestRows = db.prepare("SELECT COUNT(*) AS count FROM user_contest_results").get() as { count: number };
-    queuedRows = db.prepare("SELECT COUNT(*) AS count FROM contest_sync_jobs WHERE status = 'queued'").get() as { count: number };
-    assert.equal(contestRows.count, 35);
-    assert.equal(queuedRows.count, 2);
     await runContestSyncQueue(db, client as unknown as CodeforcesClient);
     assert.deepEqual(client.standingsCalls.slice().sort((a, b) => b - a), [
       35, 34, 33, 32, 31, 30, 29, 28, 27, 26,
@@ -711,6 +874,13 @@ test("user sync backfills a few older unsynced contests on each refresh", async 
       15, 14, 13, 12, 11, 10, 9, 8, 7, 6,
       5, 4, 3, 2, 1,
     ]);
+
+    await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
+
+    contestRows = db.prepare("SELECT COUNT(*) AS count FROM user_contest_results").get() as { count: number };
+    queuedRows = db.prepare("SELECT COUNT(*) AS count FROM contest_sync_jobs WHERE status = 'queued'").get() as { count: number };
+    assert.equal(contestRows.count, 35);
+    assert.equal(queuedRows.count, 0);
   } finally {
     db.close();
     syncState.userRunning.clear();

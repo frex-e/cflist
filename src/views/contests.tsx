@@ -6,7 +6,7 @@ import { layout } from "./layout.js";
 import { PageHero } from "./page-hero.js";
 import { CHART_THRESHOLDS, chartBands, ratingTitle } from "./rating.js";
 import { render } from "./render.js";
-import { SyncPanel } from "./sync-panel.js";
+import { SyncPanel, type SyncPanelOptions } from "./sync-panel.js";
 import {
   chartScale,
   chartValue,
@@ -19,8 +19,7 @@ import {
 
 type ContestsPageOptions = {
   rows: ContestResultRow[];
-  latestSync?: { started_at: string; finished_at: string | null; status: string; message: string | null };
-  syncRunning: boolean;
+  syncPanel: SyncPanelOptions;
   user: AuthUser;
 };
 
@@ -151,6 +150,32 @@ const ProblemPill = ({ problem }: { problem: ContestProblemResultRow }) => {
   );
 };
 
+const ProblemPillsCell = ({ row }: { row: ContestResultRow }) => {
+  if (row.problems.length) {
+    return (
+      <div class="contest-problems">
+        {row.problems.map((problem) => (
+          <ProblemPill problem={problem} />
+        ))}
+      </div>
+    );
+  }
+
+  if (row.hydration_status === "queued" || row.hydration_status === "running") {
+    return <span class="muted">Loading…</span>;
+  }
+
+  if (row.hydration_status === "failed") {
+    return (
+      <span class="muted contest-hydration-error" title={row.hydration_error ?? undefined}>
+        Could not load
+      </span>
+    );
+  }
+
+  return <span class="muted">Details pending</span>;
+};
+
 const ContestRow = ({ row }: { row: ContestResultRow }) => {
   const contestHref = `https://codeforces.com/contest/${row.contest_id}`;
   const deltaClass = row.rating_delta === null ? "" : row.rating_delta >= 0 ? "delta-positive" : "delta-negative";
@@ -172,16 +197,56 @@ const ContestRow = ({ row }: { row: ContestResultRow }) => {
       <td class={`num ${deltaClass}`}>{signedNumber(row.rating_delta)}</td>
       <td class="num"><RatingValue value={row.performance} /></td>
       <td>
-        <div class="contest-problems">
-          {row.problems.length
-            ? row.problems.map((problem) => (
-                <ProblemPill problem={problem} />
-              ))
-            : <span class="muted">Details pending</span>}
-        </div>
+        <ProblemPillsCell row={row} />
       </td>
     </tr>
   );
+};
+
+const ContestsTableBody = ({ rows }: { rows: ContestResultRow[] }) => {
+  if (!rows.length) {
+    return (
+      <tr>
+        <td class="empty" colspan={8}>Run a sync to fetch recent contest history.</td>
+      </tr>
+    );
+  }
+
+  return <>{rows.map((row) => <ContestRow row={row} />)}</>;
+};
+
+const ContestsTableSection = ({ rows }: { rows: ContestResultRow[] }) => (
+  <section id="contests-table" class="table-wrap" data-contests-table>
+    <div class="table-head">
+      <p>Contest history</p>
+      <div class="contest-legend">
+        <span><i class="contest-problem-pill contest-solved">A</i> solved</span>
+        <span><i class="contest-problem-pill upsolved">B</i> upsolved</span>
+        <span><i class="contest-problem-pill unsolved">C</i> unsolved</span>
+      </div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Contest</th>
+          <th class="num">Rank</th>
+          <th class="num">Score</th>
+          <th class="num">Rating</th>
+          <th class="num">Delta</th>
+          <th class="num">Perf</th>
+          <th>Problems</th>
+        </tr>
+      </thead>
+      <tbody>
+        <ContestsTableBody rows={rows} />
+      </tbody>
+    </table>
+  </section>
+);
+
+export const contestsTableFragment = (options: ContestsPageOptions): string => {
+  return render(<ContestsTableSection rows={options.rows} />);
 };
 
 export const contestsPage = (options: ContestsPageOptions): string => {
@@ -194,57 +259,19 @@ export const contestsPage = (options: ContestsPageOptions): string => {
     title: "CFList Contests",
     user: options.user,
     activeNav: "contests",
+    requiresJs: true,
     body: (
       <>
         <PageHero
           title="Codeforces Contests"
           subtitle={<p>{subtitle}</p>}
-          aside={
-            <SyncPanel
-              latestSync={options.latestSync}
-              syncRunning={options.syncRunning}
-              returnTo="/contests"
-              refreshLabel="Sync"
-            />
-          }
+          aside={<SyncPanel {...options.syncPanel} />}
         />
         <section class="rating-charts">
           <RatingChart rows={options.rows} metric="new_rating" scale={scale} title="Rating" />
           <RatingChart rows={options.rows} metric="performance" scale={scale} title="Performance" />
         </section>
-        <section class="table-wrap">
-          <div class="table-head">
-            <p>Contest history</p>
-            <div class="contest-legend">
-              <span><i class="contest-problem-pill contest-solved">A</i> solved</span>
-              <span><i class="contest-problem-pill upsolved">B</i> upsolved</span>
-              <span><i class="contest-problem-pill unsolved">C</i> unsolved</span>
-            </div>
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Contest</th>
-                <th class="num">Rank</th>
-                <th class="num">Score</th>
-                <th class="num">Rating</th>
-                <th class="num">Delta</th>
-                <th class="num">Perf</th>
-                <th>Problems</th>
-              </tr>
-            </thead>
-            <tbody>
-              {options.rows.length ? (
-                options.rows.map((row) => <ContestRow row={row} />)
-              ) : (
-                <tr>
-                  <td class="empty" colspan={8}>Run a sync to fetch recent contest history.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </section>
+        <ContestsTableSection rows={options.rows} />
       </>
     ),
   });

@@ -5,12 +5,20 @@ export {
   getFilterOptions,
   getLatestSyncRun,
   getLatestUserSyncRun,
+  hasSuccessfulUserSyncRun,
   problemCount,
   latestSuccessfulSyncAgeMs,
   setSolvedOverride,
   getDefaultFilterQuery,
   setDefaultFilterQuery,
 } from "./user.js";
+export {
+  getContestSyncJobCounts,
+  getContestSyncJobsByContest,
+  hasPendingContestSyncJobs,
+  isStuckUserSyncRun,
+} from "./sync-jobs.js";
+export type { ContestSyncJobCounts, ContestSyncJobRow } from "./sync-jobs.js";
 export type {
   ProblemFilters,
   ProblemRow,

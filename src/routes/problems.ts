@@ -2,18 +2,16 @@ import type { Context, Hono } from "hono";
 import type { AuthUser, AuthSession } from "../auth.js";
 import type { Db } from "../db/connection.js";
 import {
-  getDefaultFilterQuery,
   getFilterOptions,
-  getLatestUserSyncRun,
   getProblem,
   listProblems,
   normalizeFilters,
   setDefaultFilterQuery,
   setSolvedOverride,
 } from "../db/queries.js";
-import { kickContestSyncQueue, syncState, syncUserStatus } from "../cf/sync.js";
+import { currentPageFromRequest } from "../http/current-page.js";
 import { firstString, formToSearchParams, parseContestId } from "../http/forms.js";
-import { safeReturnTo } from "../http/return-to.js";
+import { buildSyncPanelOptions } from "../http/sync-panel.js";
 import {
   problemListQuery,
   problemListUrl,
@@ -33,30 +31,45 @@ type AppContext = Context<{ Variables: AppVariables }>;
 type ProblemsRouteDeps = {
   db: Db;
   requireUser: (c: AppContext) => AuthUser | Response;
-  isHtmx: (c: Context) => boolean;
   defaultFilterParams: (userId: string, requestUrl: string) => URLSearchParams | undefined;
-  runSyncInBackground: (user: AuthUser) => void;
+  maybeStartInitialSync: (user: AuthUser) => boolean;
+};
+
+const syncNoticeFrom = (requestUrl: string): string | undefined => {
+  const param = new URL(requestUrl).searchParams.get("sync");
+  return param === "already-running" ? "already-running" : undefined;
 };
 
 export const registerProblemsRoutes = (
   app: Hono<{ Variables: AppVariables }>,
   deps: ProblemsRouteDeps,
 ): void => {
-  const { db, requireUser, isHtmx, defaultFilterParams, runSyncInBackground } = deps;
+  const { db, requireUser, defaultFilterParams, maybeStartInitialSync } = deps;
 
-  const problemListOptionsFor = (user: AuthUser, requestUrl: string, params?: URLSearchParams) => {
+  const problemListOptionsFor = (
+    user: AuthUser,
+    requestUrl: string,
+    params?: URLSearchParams,
+    autoSyncStarted = false,
+  ) => {
     params ??= new URL(requestUrl).searchParams;
     const filters = normalizeFilters(params, user.id, user.cfHandle);
     const result = listProblems(db, filters);
     const options = getFilterOptions(db);
-    const latestSync = getLatestUserSyncRun(db, user.id);
+    const listUrl = problemListUrl(filters, filters.page);
 
     return {
       filters,
       result,
       options,
-      latestSync,
-      syncRunning: syncState.userRunning.has(user.id),
+      syncPanel: buildSyncPanelOptions(
+        db,
+        user,
+        listUrl,
+        "problems",
+        syncNoticeFrom(requestUrl),
+        autoSyncStarted,
+      ),
       user,
     };
   };
@@ -64,7 +77,8 @@ export const registerProblemsRoutes = (
   app.get("/problems", (c) => {
     const user = requireUser(c);
     if (user instanceof Response) return user;
-    return c.html(problemsPage(problemListOptionsFor(user, c.req.url, defaultFilterParams(user.id, c.req.url))));
+    const autoSyncStarted = maybeStartInitialSync(user);
+    return c.html(problemsPage(problemListOptionsFor(user, c.req.url, defaultFilterParams(user.id, c.req.url), autoSyncStarted)));
   });
 
   app.get("/problems/fragment", (c) => {
@@ -76,10 +90,7 @@ export const registerProblemsRoutes = (
       return c.html(problemsAppendFragment(options));
     }
 
-    if (isHtmx(c)) {
-      c.header("HX-Push-Url", problemListUrl(options.filters, options.filters.page));
-    }
-
+    c.header("HX-Push-Url", problemListUrl(options.filters, options.filters.page));
     return c.html(`${problemSummaryOutOfBand(options)}${problemsListFragment(options)}`);
   });
 
@@ -95,41 +106,15 @@ export const registerProblemsRoutes = (
     const rawOverride = firstString(form.solvedOverride);
     const solvedOverride = rawOverride === "1" ? 1 : null;
     const note = firstString(form.note).trim() || null;
-    const returnTo = safeReturnTo(firstString(form.returnTo));
     const problem = getProblem(db, user.id, contestId, index);
 
     if (!problem) return c.text("Problem not found", 404);
 
     setSolvedOverride(db, user.id, contestId, index, solvedOverride, note);
-    const updatedProblem = getProblem(db, user.id, contestId, index);
 
-    if (isHtmx(c) && updatedProblem) {
-      const listUrl = new URL(returnTo ?? "/problems", c.req.url).toString();
-      const options = problemListOptionsFor(user, listUrl);
-      return c.html(`${problemsListFragment(options)}${problemSummaryOutOfBand(options)}`);
-    }
-
-    if (c.req.header("accept")?.includes("application/json")) {
-      return c.json({
-        contestId,
-        problemIndex: index,
-        cfSolved: updatedProblem?.cf_solved === 1,
-        solvedOverride: updatedProblem?.solved_override ?? null,
-        effectiveSolved: updatedProblem?.effective_solved === 1,
-      });
-    }
-
-    return c.redirect(returnTo ?? "/problems");
-  });
-
-  app.post("/admin/sync", async (c) => {
-    const user = requireUser(c);
-    if (user instanceof Response) return user;
-
-    const form = await c.req.parseBody();
-    const returnTo = safeReturnTo(firstString(form.returnTo));
-    runSyncInBackground(user);
-    return c.redirect(returnTo ?? "/problems");
+    const listUrl = new URL(currentPageFromRequest(c), c.req.url).toString();
+    const options = problemListOptionsFor(user, listUrl);
+    return c.html(`${problemsListFragment(options)}${problemSummaryOutOfBand(options)}`);
   });
 
   app.post("/preferences/default-filters", async (c) => {
@@ -141,7 +126,6 @@ export const registerProblemsRoutes = (
     const query = problemListQuery(filters);
 
     setDefaultFilterQuery(db, user.id, query);
-    if (!isHtmx(c) && c.req.header("accept")?.includes("text/html")) return c.redirect("/problems");
     return c.text("Default saved");
   });
 };

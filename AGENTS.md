@@ -32,7 +32,7 @@ Detailed notes live in [`agents/`](./agents/README.md) by topic (Codeforces API,
 ## Rules of thumb
 
 - Keep the app small; avoid new frameworks without a clear reason.
-- Preserve URL-backed filters; forms should work without JS.
+- Preserve URL-backed filters; interactive Problems/Contests UI requires JavaScript (HTMX + page scripts).
 - Codeforces solved status is authoritative; local manual solves are additive.
 - Import contest-scoped problems from standings when `problemset.problems` omits them.
 - If a submission-discovered contest lacks a matching standings row, keep rank/score blank but use accepted submissions for contest problem pills.

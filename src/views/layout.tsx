@@ -11,10 +11,14 @@ export const layout = (options: {
   user?: AuthUser;
   activeNav?: ActiveNav;
   scripts?: string[];
+  requiresJs?: boolean;
 }): string => {
   const body = typeof options.body === "string" ? raw(options.body) : options.body;
   const activeNav = options.activeNav;
-  const scripts = options.scripts ?? [];
+  const scripts = [...(options.scripts ?? [])];
+  if (options.user && !scripts.includes("/public/sync.js")) {
+    scripts.push("/public/sync.js");
+  }
 
   return `<!doctype html>${render(
     <html lang="en">
@@ -58,7 +62,14 @@ export const layout = (options: {
             )}
           </nav>
         </header>
-        <main class="page">{body}</main>
+        <main class="page">
+          {options.requiresJs ? (
+            <noscript>
+              <p class="noscript-banner">CFList requires JavaScript on this page.</p>
+            </noscript>
+          ) : null}
+          {body}
+        </main>
       </body>
     </html>,
   )}`;

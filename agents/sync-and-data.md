@@ -24,7 +24,7 @@ Codeforces accepted submission status OR local solved override
 
 ## Sync pipeline
 
-User sync refreshes catalog only when the problem table is empty or the last successful catalog sync is older than `SYNC_INTERVAL_MINUTES`, then refreshes solved status and basic contest rows from `user.rating`, and queues standings hydration for up to 30 recent contests plus up to 3 older incomplete contests per refresh. Contest participation is discovered from `user.rating` plus contests with accepted submissions.
+User sync refreshes catalog when the problem table is empty or the last successful catalog sync is older than `SYNC_INTERVAL_MINUTES`, and also forces a catalog refresh when user data references contests missing locally. It then refreshes solved status and basic contest rows from `user.rating`, and queues standings hydration for all contests that still need it. Queue priority is recency rank in the user's contest list (0 = newest). Contest participation is discovered from `user.rating` plus contests with accepted submissions.
 
 - Skips complete existing contest rows; recomputes only cheap upsolve flags from `user.status`; leaves performance/standings work to queued hydration.
 - Commits catalog, solved-status, and basic rating updates before contest refresh work. Queued contest rows are written one contest at a time as each result is calculated.

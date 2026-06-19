@@ -83,4 +83,6 @@ export type ContestResultRow = {
   rating_delta: number | null;
   performance: number | null;
   problems: ContestProblemResultRow[];
+  hydration_status?: "queued" | "running" | "failed" | null;
+  hydration_error?: string | null;
 };

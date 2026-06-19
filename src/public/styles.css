@@ -179,6 +179,16 @@ button:disabled,
   padding: 22px 28px 40px;
 }
 
+.noscript-banner {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: #fff8e6;
+  color: var(--text);
+  font-size: 14px;
+}
+
 .hero {
   display: flex;
   align-items: flex-start;
@@ -243,7 +253,7 @@ p {
 
 .sync-panel {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
   flex: 0 1 640px;
@@ -254,17 +264,40 @@ p {
   color: var(--muted);
 }
 
-.sync-panel span {
+.sync-panel-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sync-panel-status {
   font-size: 12px;
   font-weight: 650;
 }
 
-.sync-panel p {
+.sync-panel-message,
+.sync-panel-hydration {
+  margin: 0;
   max-width: 420px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.sync-panel-message {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-size: 12px;
+}
+
+.sync-panel--failed .sync-panel-message {
+  overflow: visible;
+  white-space: normal;
+  text-overflow: unset;
+  color: var(--danger);
+}
+
+.sync-panel-hydration {
+  color: var(--muted);
 }
 
 .sync-panel form {
@@ -276,6 +309,28 @@ p {
 .sync-panel button,
 .sync-panel input {
   min-height: 30px;
+}
+
+.sync-prompt-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+}
+
+.sync-prompt-banner p {
+  margin: 0;
+  color: var(--text);
+}
+
+.contest-hydration-error {
+  cursor: help;
+  text-decoration: underline dotted;
 }
 
 .workspace {
@@ -389,9 +444,6 @@ textarea {
   padding-top: 2px;
 }
 
-.filter-actions noscript {
-  display: contents;
-}
 
 .filter-actions-top {
   position: sticky;
@@ -569,14 +621,6 @@ textarea {
   font-size: 13px;
 }
 
-.pager {
-  display: flex;
-  gap: 7px;
-}
-
-.js .pager {
-  display: none;
-}
 
 table {
   width: 100%;
