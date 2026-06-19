@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { acceptedProblemsFromSubmissions } from "../src/cf/sync.js";
+import { acceptedProblemsFromSubmissions } from "../src/cf/accepted-problems.js";
 import type { CfContest, CfSubmission } from "../src/cf/types.js";
 
 const contests = new Map<number, CfContest>([

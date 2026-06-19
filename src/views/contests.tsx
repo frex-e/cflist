@@ -1,24 +1,27 @@
 import type { Child } from "hono/jsx";
 import type { AuthUser } from "../auth.js";
 import type { ContestProblemResultRow, ContestResultRow } from "../db/queries.js";
-import { formatNumber } from "./html.js";
+import { formatDateFromSeconds, formatNumber } from "./html.js";
 import { layout } from "./layout.js";
-import { ratingTitle } from "./rating.js";
+import { PageHero } from "./page-hero.js";
+import { CHART_THRESHOLDS, chartBands, ratingTitle } from "./rating.js";
+import { render } from "./render.js";
+import { SyncPanel } from "./sync-panel.js";
+import {
+  chartScale,
+  chartValue,
+  type ChartMetric,
+  type ChartPoint,
+  xForTime,
+  yForValue,
+  yearTicks,
+} from "./contests/chart.js";
 
 type ContestsPageOptions = {
   rows: ContestResultRow[];
   latestSync?: { started_at: string; finished_at: string | null; status: string; message: string | null };
   syncRunning: boolean;
   user: AuthUser;
-};
-
-const render = (content: Child): string => String(content);
-
-const formatDate = (value: number | null): string => {
-  if (value === null) return "";
-  const date = new Date(value * 1000);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 };
 
 const signedNumber = (value: number | null): string => {
@@ -31,85 +34,13 @@ const scoreText = (value: number | null): string => {
   return Number.isInteger(value) ? formatNumber(value) : value.toFixed(2);
 };
 
-type ChartMetric = "new_rating" | "performance";
-
-type ChartPoint = {
-  row: ContestResultRow;
-  timeSeconds: number;
-  value: number;
-};
-
-type RatingBand = {
-  name: string;
-  min: number;
-  max: number;
-  className: string;
-};
-
-type ChartScale = {
-  yMin: number;
-  yMax: number;
-};
-
-const ratingBands: RatingBand[] = [
-  { name: "Newbie", min: 0, max: 1200, className: "chart-band-newbie" },
-  { name: "Pupil", min: 1200, max: 1400, className: "chart-band-pupil" },
-  { name: "Specialist", min: 1400, max: 1600, className: "chart-band-specialist" },
-  { name: "Expert", min: 1600, max: 1900, className: "chart-band-expert" },
-  { name: "Candidate Master", min: 1900, max: 2100, className: "chart-band-candidate-master" },
-  { name: "Master", min: 2100, max: 2300, className: "chart-band-master" },
-  { name: "International Master", min: 2300, max: 2400, className: "chart-band-international-master" },
-  { name: "Grandmaster", min: 2400, max: 2600, className: "chart-band-grandmaster" },
-  { name: "International Grandmaster", min: 2600, max: 3000, className: "chart-band-international-grandmaster" },
-  { name: "Legendary Grandmaster", min: 3000, max: 4000, className: "chart-band-legendary-grandmaster" },
-];
-
-const chartThresholds = [1200, 1400, 1600, 1900, 2100, 2300, 2400, 2600, 3000];
-
-const chartValue = (row: ContestResultRow, metric: ChartMetric): number | null => row[metric];
-
-const chartValues = (rows: ContestResultRow[], metric: ChartMetric): number[] => {
-  return rows
-    .map((row) => chartValue(row, metric))
-    .filter((value): value is number => value !== null);
-};
-
-const chartScale = (rows: ContestResultRow[]): ChartScale => {
-  const values = [...chartValues(rows, "new_rating"), ...chartValues(rows, "performance")];
-  const maxValue = Math.max(...values, 1600);
-  const minValue = Math.min(...values, 1200);
-
-  return {
-    yMin: Math.max(0, Math.floor((minValue - 160) / 100) * 100),
-    yMax: Math.min(4000, Math.max(1600, Math.ceil((maxValue + 180) / 100) * 100)),
-  };
-};
-
 const chartTitle = (row: ContestResultRow, value: number, label: string): string => {
-  const date = formatDate(row.start_time_seconds);
+  const date = formatDateFromSeconds(row.start_time_seconds);
   const prefix = date ? `${date} - ` : "";
   return `${prefix}${row.contest_name}: ${label} ${formatNumber(value)}`;
 };
 
-const yearTicks = (
-  minTimeSeconds: number,
-  maxTimeSeconds: number,
-  xForTime: (timeSeconds: number) => number,
-): { year: number; x: number }[] => {
-  const ticks: { year: number; x: number }[] = [];
-  const minYear = new Date(minTimeSeconds * 1000).getUTCFullYear();
-  const maxYear = new Date(maxTimeSeconds * 1000).getUTCFullYear();
-
-  for (let year = minYear; year <= maxYear; year += 1) {
-    const timeSeconds = Date.UTC(year, 0, 1) / 1000;
-    if (timeSeconds < minTimeSeconds || timeSeconds > maxTimeSeconds) continue;
-    ticks.push({ year, x: xForTime(timeSeconds) });
-  }
-
-  return ticks;
-};
-
-const RatingChart = ({ rows, metric, scale, title }: { rows: ContestResultRow[]; metric: ChartMetric; scale: ChartScale; title: string }) => {
+const RatingChart = ({ rows, metric, scale, title }: { rows: ContestResultRow[]; metric: ChartMetric; scale: ReturnType<typeof chartScale>; title: string }) => {
   const points = rows
     .slice()
     .reverse()
@@ -141,11 +72,12 @@ const RatingChart = ({ rows, metric, scale, title }: { rows: ContestResultRow[];
   const minTimeSeconds = Math.min(...points.map((point) => point.timeSeconds));
   const maxTimeSeconds = Math.max(...points.map((point) => point.timeSeconds));
   const timeRangeSeconds = Math.max(1, maxTimeSeconds - minTimeSeconds);
-  const xForTime = (timeSeconds: number): number => margin.left + ((timeSeconds - minTimeSeconds) / timeRangeSeconds) * plotWidth;
-  const yForValue = (value: number): number => margin.top + ((yMax - value) / (yMax - yMin)) * plotHeight;
-  const linePoints = points.map((point) => `${xForTime(point.timeSeconds).toFixed(1)},${yForValue(point.value).toFixed(1)}`).join(" ");
-  const yTicks = chartThresholds.filter((value) => value > yMin && value < yMax);
-  const xTicks = yearTicks(minTimeSeconds, maxTimeSeconds, xForTime);
+  const xAt = (timeSeconds: number): number => xForTime(timeSeconds, minTimeSeconds, timeRangeSeconds, margin.left, plotWidth);
+  const yAt = (value: number): number => yForValue(value, yMin, yMax, margin.top, plotHeight);
+  const linePoints = points.map((point) => `${xAt(point.timeSeconds).toFixed(1)},${yAt(point.value).toFixed(1)}`).join(" ");
+  const yTicks = CHART_THRESHOLDS.filter((value) => value > yMin && value < yMax);
+  const xTicks = yearTicks(minTimeSeconds, maxTimeSeconds, xAt);
+  const bands = chartBands();
 
   return (
     <section class="rating-chart-panel">
@@ -154,18 +86,18 @@ const RatingChart = ({ rows, metric, scale, title }: { rows: ContestResultRow[];
         <p>{formatNumber(points.length)} rated contests</p>
       </div>
       <svg class="rating-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${title} chart`}>
-        {ratingBands.map((band) => {
+        {bands.map((band) => {
           const bandMin = Math.max(band.min, yMin);
           const bandMax = Math.min(band.max, yMax);
           if (bandMax <= yMin || bandMin >= yMax || bandMax <= bandMin) return null;
-          const y = yForValue(bandMax);
-          const bandHeight = yForValue(bandMin) - y;
-          return <rect class={band.className} x={margin.left} y={y} width={plotWidth} height={bandHeight} />;
+          const y = yAt(bandMax);
+          const bandHeight = yAt(bandMin) - y;
+          return <rect class={band.chartClass} x={margin.left} y={y} width={plotWidth} height={bandHeight} />;
         })}
         <line class="chart-axis" x1={margin.left} y1={margin.top} x2={margin.left} y2={margin.top + plotHeight} />
         <line class="chart-axis" x1={margin.left} y1={margin.top + plotHeight} x2={margin.left + plotWidth} y2={margin.top + plotHeight} />
         {yTicks.map((value) => {
-          const y = yForValue(value);
+          const y = yAt(value);
           return (
             <g>
               <line class="chart-grid" x1={margin.left} y1={y} x2={margin.left + plotWidth} y2={y} />
@@ -181,7 +113,7 @@ const RatingChart = ({ rows, metric, scale, title }: { rows: ContestResultRow[];
         ))}
         <polyline class="chart-line" points={linePoints} />
         {points.map((point) => (
-          <circle class="chart-point" cx={xForTime(point.timeSeconds)} cy={yForValue(point.value)} r="4.2">
+          <circle class="chart-point" cx={xAt(point.timeSeconds)} cy={yAt(point.value)} r="4.2">
             <title>{chartTitle(point.row, point.value, title)}</title>
           </circle>
         ))}
@@ -225,7 +157,7 @@ const ContestRow = ({ row }: { row: ContestResultRow }) => {
 
   return (
     <tr>
-      <td class="nowrap">{formatDate(row.start_time_seconds)}</td>
+      <td class="nowrap">{formatDateFromSeconds(row.start_time_seconds)}</td>
       <td>
         <div class="contest-title-cell">
           <a class="problem-name" href={contestHref} rel="noreferrer" target="_blank">
@@ -252,31 +184,11 @@ const ContestRow = ({ row }: { row: ContestResultRow }) => {
   );
 };
 
-const SyncPanel = ({ latestSync, syncRunning }: ContestsPageOptions) => {
-  const status = syncRunning
-    ? "Sync running"
-    : latestSync
-      ? `${latestSync.status} sync${latestSync.finished_at ? ` finished ${new Date(latestSync.finished_at).toLocaleString()}` : ""}`
-      : "No user sync yet";
-
-  return (
-    <aside class="sync-panel">
-      <div>
-        <span>{status}</span>
-        {latestSync?.message ? <p>{latestSync.message}</p> : null}
-      </div>
-      <form method="post" action="/admin/sync">
-        <input type="hidden" name="returnTo" value="/contests" />
-        <button type="submit" disabled={syncRunning}>
-          {syncRunning ? "Syncing" : "Sync"}
-        </button>
-      </form>
-    </aside>
-  );
-};
-
 export const contestsPage = (options: ContestsPageOptions): string => {
   const scale = chartScale(options.rows);
+  const subtitle = options.rows.length
+    ? `${formatNumber(options.rows.length)} recent contests for ${options.user.cfHandle}`
+    : `No synced contests for ${options.user.cfHandle}`;
 
   return layout({
     title: "CFList Contests",
@@ -284,13 +196,18 @@ export const contestsPage = (options: ContestsPageOptions): string => {
     activeNav: "contests",
     body: (
       <>
-        <section class="hero">
-          <div>
-            <h1>Codeforces Contests</h1>
-            <p>{options.rows.length ? `${formatNumber(options.rows.length)} recent contests for ${options.user.cfHandle}` : `No synced contests for ${options.user.cfHandle}`}</p>
-          </div>
-          <SyncPanel {...options} />
-        </section>
+        <PageHero
+          title="Codeforces Contests"
+          subtitle={<p>{subtitle}</p>}
+          aside={
+            <SyncPanel
+              latestSync={options.latestSync}
+              syncRunning={options.syncRunning}
+              returnTo="/contests"
+              refreshLabel="Sync"
+            />
+          }
+        />
         <section class="rating-charts">
           <RatingChart rows={options.rows} metric="new_rating" scale={scale} title="Rating" />
           <RatingChart rows={options.rows} metric="performance" scale={scale} title="Performance" />

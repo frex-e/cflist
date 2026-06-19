@@ -165,7 +165,7 @@ test("default filter save works as a normal form post", async () => {
     assert.equal(formPage.status, 200);
     assert.match(formHtml, /formmethod="post"/);
     assert.match(formHtml, /formaction="\/preferences\/default-filters"/);
-    assert.match(formHtml, /hx-push-url="false"/);
+    assert.match(formHtml, /data-filter-save-default/);
 
     const saveResponse = await app.request("/preferences/default-filters", {
       method: "POST",

@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import type { CodeforcesClient } from "../src/cf/client.js";
 import { runContestSyncQueue, syncState, syncUserStatus } from "../src/cf/sync.js";
+import { enqueueContestHydrationJobs } from "../src/cf/sync/contest-queue.js";
 import type { CfContest, CfProblemset, CfRatingChange, CfStandings, CfSubmission } from "../src/cf/types.js";
 import { migrate } from "../src/db/migrate.js";
 
@@ -198,6 +199,148 @@ class SubmissionOnlyClient extends FakeClient {
   }
 }
 
+class UpsolveOnlyClient extends FakeClient {
+  async userStatus(): Promise<CfSubmission[]> {
+    return [
+      {
+        id: 1,
+        contestId: 100,
+        creationTimeSeconds: 9000,
+        verdict: "OK",
+        problem: { contestId: 100, index: "B", name: "B", tags: [] },
+      },
+    ];
+  }
+
+  async userRating(): Promise<CfRatingChange[]> {
+    return [];
+  }
+
+  async contestRatingChanges(): Promise<CfRatingChange[]> {
+    throw new Error("rating changes should not be fetched");
+  }
+
+  async contestStandings(): Promise<CfStandings> {
+    this.standingsCalls += 1;
+    return {
+      contest: {
+        id: 100,
+        name: "Codeforces Round 100 (Div. 2)",
+        startTimeSeconds: 1000,
+        durationSeconds: 7200,
+      },
+      problems: [
+        { contestId: 100, index: "A", name: "A", tags: [] },
+        { contestId: 100, index: "B", name: "B", tags: [] },
+      ],
+      rows: [
+        {
+          party: {
+            contestId: 100,
+            members: [{ handle: "someone-else" }],
+            participantType: "CONTESTANT",
+          },
+          rank: 1,
+          points: 2,
+          penalty: 10,
+          problemResults: [
+            { points: 1, bestSubmissionTimeSeconds: 100, rejectedAttemptCount: 0 },
+            { points: 1, bestSubmissionTimeSeconds: 200, rejectedAttemptCount: 0 },
+          ],
+        },
+      ],
+    };
+  }
+}
+
+class StaleCatalogClient extends FakeClient {
+  async contests(): Promise<CfContest[]> {
+    return [];
+  }
+
+  async problemset(): Promise<CfProblemset> {
+    return { problems: [], problemStatistics: [] };
+  }
+
+  async userRating(): Promise<CfRatingChange[]> {
+    return [
+      {
+        contestId: 200,
+        contestName: "Codeforces Round 200 (Div. 2)",
+        handle: cfHandle,
+        rank: 10,
+        ratingUpdateTimeSeconds: 2_000_000,
+        oldRating: 1500,
+        newRating: 1510,
+      },
+    ];
+  }
+
+  async userStatus(): Promise<CfSubmission[]> {
+    return [];
+  }
+
+  async contestRatingChanges(): Promise<CfRatingChange[]> {
+    throw new Error("contest hydration should not run in stale catalog test");
+  }
+
+  async contestStandings(): Promise<CfStandings> {
+    throw new Error("contest hydration should not run in stale catalog test");
+  }
+}
+
+class NoopHydrationClient extends FakeClient {
+  async userStatus(): Promise<CfSubmission[]> {
+    return [
+      {
+        id: 1,
+        contestId: 100,
+        creationTimeSeconds: 1200,
+        verdict: "WRONG_ANSWER",
+        problem: { contestId: 100, index: "A", name: "A", tags: [] },
+      },
+    ];
+  }
+
+  async userRating(): Promise<CfRatingChange[]> {
+    return [];
+  }
+
+  async contestRatingChanges(): Promise<CfRatingChange[]> {
+    throw new Error("rating changes should not be fetched");
+  }
+
+  async contestStandings(): Promise<CfStandings> {
+    this.standingsCalls += 1;
+    return {
+      contest: {
+        id: 100,
+        name: "Codeforces Round 100 (Div. 2)",
+        startTimeSeconds: 1000,
+        durationSeconds: 7200,
+      },
+      problems: [
+        { contestId: 100, index: "A", name: "A", tags: [] },
+      ],
+      rows: [
+        {
+          party: {
+            contestId: 100,
+            members: [{ handle: "someone-else" }],
+            participantType: "CONTESTANT",
+          },
+          rank: 1,
+          points: 1,
+          penalty: 10,
+          problemResults: [
+            { points: 1, bestSubmissionTimeSeconds: 100, rejectedAttemptCount: 0 },
+          ],
+        },
+      ],
+    };
+  }
+}
+
 class BackfillClient {
   standingsCalls: number[] = [];
 
@@ -298,6 +441,150 @@ class BackfillClient {
     };
   }
 }
+
+test("failed in-contest submissions do not create contest rows or hydration jobs", async () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+  insertUser(db);
+  syncState.catalogRunning = false;
+  syncState.userRunning.clear();
+  syncState.contestQueueRunning = false;
+
+  try {
+    const client = new NoopHydrationClient();
+    await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
+
+    const contestRows = db.prepare("SELECT COUNT(*) AS count FROM user_contest_results").get() as { count: number };
+    const jobRows = db.prepare("SELECT COUNT(*) AS count FROM contest_sync_jobs").get() as { count: number };
+
+    assert.equal(contestRows.count, 0);
+    assert.equal(jobRows.count, 0);
+    assert.equal(client.standingsCalls, 0);
+  } finally {
+    db.close();
+    syncState.userRunning.clear();
+    syncState.contestQueueRunning = false;
+  }
+});
+
+test("contest queue finishes noop hydration jobs instead of requeuing forever", async () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+  insertUser(db);
+  syncState.catalogRunning = false;
+  syncState.userRunning.clear();
+  syncState.contestQueueRunning = false;
+
+  try {
+    const client = new NoopHydrationClient();
+    await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
+    enqueueContestHydrationJobs(db, userId, cfHandle, [100], 0);
+    await runContestSyncQueue(db, client as unknown as CodeforcesClient);
+
+    const job = db
+      .prepare("SELECT status, attempts FROM contest_sync_jobs WHERE contest_id = 100")
+      .get() as { status: string; attempts: number };
+    const problemRows = db.prepare("SELECT COUNT(*) AS count FROM user_contest_problem_results").get() as { count: number };
+
+    assert.deepEqual({ ...job }, { status: "done", attempts: 1 });
+    assert.equal(problemRows.count, 0);
+    assert.equal(client.standingsCalls, 1);
+  } finally {
+    db.close();
+    syncState.userRunning.clear();
+    syncState.contestQueueRunning = false;
+  }
+});
+
+test("user sync keeps completed contest jobs done unless hydration is incomplete", async () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+  insertUser(db);
+  syncState.catalogRunning = false;
+  syncState.userRunning.clear();
+  syncState.contestQueueRunning = false;
+
+  try {
+    const client = new FakeClient();
+    await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
+    await runContestSyncQueue(db, client as unknown as CodeforcesClient);
+    await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
+
+    const job = db
+      .prepare("SELECT status FROM contest_sync_jobs WHERE contest_id = 100")
+      .get() as { status: string };
+    assert.equal(job.status, "done");
+  } finally {
+    db.close();
+    syncState.userRunning.clear();
+    syncState.contestQueueRunning = false;
+  }
+});
+
+test("user sync upserts contest stubs from rating when catalog is stale", async () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+  insertUser(db);
+  db.prepare(
+    `
+    INSERT INTO contests (id, name, raw_json, updated_at)
+    VALUES (100, 'Old contest', '{}', '2026-01-01T00:00:00.000Z')
+  `,
+  ).run();
+  syncState.catalogRunning = false;
+  syncState.userRunning.clear();
+  syncState.contestQueueRunning = false;
+
+  try {
+    const client = new StaleCatalogClient();
+    await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
+
+    const contest = db
+      .prepare("SELECT id, name FROM contests WHERE id = 200")
+      .get() as { id: number; name: string };
+    const contestRows = db.prepare("SELECT COUNT(*) AS count FROM user_contest_results").get() as { count: number };
+
+    assert.equal(contest.id, 200);
+    assert.equal(contest.name, "Codeforces Round 200 (Div. 2)");
+    assert.equal(contestRows.count, 1);
+  } finally {
+    db.close();
+    syncState.userRunning.clear();
+    syncState.contestQueueRunning = false;
+  }
+});
+
+test("user sync includes upsolve-only contests discovered from accepted submissions", async () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+  insertUser(db);
+  syncState.catalogRunning = false;
+  syncState.userRunning.clear();
+  syncState.contestQueueRunning = false;
+
+  try {
+    const client = new UpsolveOnlyClient();
+    await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
+    await runContestSyncQueue(db, client as unknown as CodeforcesClient);
+
+    const contestRows = db.prepare("SELECT COUNT(*) AS count FROM user_contest_results").get() as { count: number };
+    const upsolved = db
+      .prepare("SELECT upsolved FROM user_contest_problem_results WHERE problem_index = 'B'")
+      .get() as { upsolved: number };
+
+    assert.equal(contestRows.count, 1);
+    assert.equal(upsolved.upsolved, 1);
+  } finally {
+    db.close();
+    syncState.userRunning.clear();
+    syncState.contestQueueRunning = false;
+  }
+});
 
 test("user sync imports standings-only contest problems before writing contest results", async () => {
   const db = new DatabaseSync(":memory:");

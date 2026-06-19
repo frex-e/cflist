@@ -1,14 +1,20 @@
 import type { Child } from "hono/jsx";
 import { raw } from "hono/html";
 import type { AuthUser } from "../auth.js";
-
-const render = (content: Child): string => String(content);
+import { render } from "./render.js";
 
 type ActiveNav = "problems" | "contests" | "sign-in" | "sign-up";
 
-export const layout = (options: { title: string; body: Child | string; user?: AuthUser; activeNav?: ActiveNav }): string => {
+export const layout = (options: {
+  title: string;
+  body: Child | string;
+  user?: AuthUser;
+  activeNav?: ActiveNav;
+  scripts?: string[];
+}): string => {
   const body = typeof options.body === "string" ? raw(options.body) : options.body;
   const activeNav = options.activeNav;
+  const scripts = options.scripts ?? [];
 
   return `<!doctype html>${render(
     <html lang="en">
@@ -18,7 +24,7 @@ export const layout = (options: { title: string; body: Child | string; user?: Au
         <title>{options.title}</title>
         <link rel="stylesheet" href="/public/styles.css" />
         <script src="/public/htmx.min.js" defer></script>
-        <script src="/public/filters.js" defer></script>
+        {scripts.map((src) => <script src={src} defer></script>)}
       </head>
       <body>
         <header class="topbar">

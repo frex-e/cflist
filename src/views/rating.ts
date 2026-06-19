@@ -1,3 +1,27 @@
+export type RatingTier = {
+  name: string;
+  min: number;
+  max: number;
+  dotClass: string;
+  textClass: string;
+  chartClass: string;
+};
+
+export const RATING_TIERS: RatingTier[] = [
+  { name: "Newbie", min: 0, max: 1200, dotClass: "rank-newbie", textClass: "rating-newbie", chartClass: "chart-band-newbie" },
+  { name: "Pupil", min: 1200, max: 1400, dotClass: "rank-pupil", textClass: "rating-pupil", chartClass: "chart-band-pupil" },
+  { name: "Specialist", min: 1400, max: 1600, dotClass: "rank-specialist", textClass: "rating-specialist", chartClass: "chart-band-specialist" },
+  { name: "Expert", min: 1600, max: 1900, dotClass: "rank-expert", textClass: "rating-expert", chartClass: "chart-band-expert" },
+  { name: "Candidate Master", min: 1900, max: 2100, dotClass: "rank-candidate-master", textClass: "rating-candidate-master", chartClass: "chart-band-candidate-master" },
+  { name: "Master", min: 2100, max: 2300, dotClass: "rank-master", textClass: "rating-master", chartClass: "chart-band-master" },
+  { name: "International Master", min: 2300, max: 2400, dotClass: "rank-international-master", textClass: "rating-international-master", chartClass: "chart-band-international-master" },
+  { name: "Grandmaster", min: 2400, max: 2600, dotClass: "rank-grandmaster", textClass: "rating-grandmaster", chartClass: "chart-band-grandmaster" },
+  { name: "International Grandmaster", min: 2600, max: 3000, dotClass: "rank-international-grandmaster", textClass: "rating-international-grandmaster", chartClass: "chart-band-international-grandmaster" },
+  { name: "Legendary Grandmaster", min: 3000, max: 4000, dotClass: "rank-legendary-grandmaster", textClass: "rating-legendary-grandmaster", chartClass: "chart-band-legendary-grandmaster" },
+];
+
+export const CHART_THRESHOLDS = [1200, 1400, 1600, 1900, 2100, 2300, 2400, 2600, 3000];
+
 type RatingTitle = {
   name: string;
   className: string;
@@ -6,14 +30,19 @@ type RatingTitle = {
 
 export const ratingTitle = (rating: number | null): RatingTitle => {
   if (rating === null) return { name: "Unrated", className: "rank-unrated", textClassName: "rating-unrated" };
-  if (rating < 1200) return { name: "Newbie", className: "rank-newbie", textClassName: "rating-newbie" };
-  if (rating < 1400) return { name: "Pupil", className: "rank-pupil", textClassName: "rating-pupil" };
-  if (rating < 1600) return { name: "Specialist", className: "rank-specialist", textClassName: "rating-specialist" };
-  if (rating < 1900) return { name: "Expert", className: "rank-expert", textClassName: "rating-expert" };
-  if (rating < 2100) return { name: "Candidate Master", className: "rank-candidate-master", textClassName: "rating-candidate-master" };
-  if (rating < 2300) return { name: "Master", className: "rank-master", textClassName: "rating-master" };
-  if (rating < 2400) return { name: "International Master", className: "rank-international-master", textClassName: "rating-international-master" };
-  if (rating < 2600) return { name: "Grandmaster", className: "rank-grandmaster", textClassName: "rating-grandmaster" };
-  if (rating < 3000) return { name: "International Grandmaster", className: "rank-international-grandmaster", textClassName: "rating-international-grandmaster" };
-  return { name: "Legendary Grandmaster", className: "rank-legendary-grandmaster", textClassName: "rating-legendary-grandmaster" };
+  const tier = RATING_TIERS.find((item) => rating >= item.min && rating < item.max);
+  if (!tier) {
+    const last = RATING_TIERS.at(-1)!;
+    return { name: last.name, className: last.dotClass, textClassName: last.textClass };
+  }
+  return { name: tier.name, className: tier.dotClass, textClassName: tier.textClass };
+};
+
+export const chartBands = (): Pick<RatingTier, "name" | "min" | "max" | "chartClass">[] => {
+  return RATING_TIERS.map((tier) => ({
+    name: tier.name,
+    min: tier.min,
+    max: tier.max,
+    chartClass: tier.chartClass,
+  }));
 };

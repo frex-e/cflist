@@ -56,34 +56,6 @@
     sync();
   };
 
-  const resetFilterForm = (form) => {
-    form.querySelectorAll('input[type="search"]').forEach((input) => {
-      input.value = "";
-    });
-    form.querySelectorAll('input[type="checkbox"]').forEach((input) => {
-      input.checked = false;
-    });
-    form.querySelectorAll("select").forEach((select) => {
-      if (select.name === "solved") select.value = "all";
-      else if (select.name === "sort") select.value = "contest";
-      else if (select.name === "sortDirection") select.value = "desc";
-      else if (select.name === "tagMode") select.value = "any";
-      else if (select.name === "pageSize") select.value = "50";
-      else select.value = "";
-    });
-    form.querySelectorAll("[data-rating-filter]").forEach((root) => {
-      const minInput = root.querySelector("[data-rating-min]");
-      const maxInput = root.querySelector("[data-rating-max]");
-      const minHidden = root.querySelector("[data-rating-min-hidden]");
-      const maxHidden = root.querySelector("[data-rating-max-hidden]");
-      if (minInput) minInput.value = root.dataset.min || minInput.min;
-      if (maxInput) maxInput.value = root.dataset.max || maxInput.max;
-      if (minHidden) minHidden.value = "";
-      if (maxHidden) maxHidden.value = "";
-      if (typeof root.cflistSyncRatingFilter === "function") root.cflistSyncRatingFilter();
-    });
-  };
-
   const setupDirectionToggle = (toggle) => {
     const label = toggle.closest(".direction-toggle")?.querySelector("span");
     if (!label) return;
@@ -102,28 +74,11 @@
   document.querySelectorAll("[data-rating-filter]").forEach(setupRatingFilter);
   document.querySelectorAll('.direction-toggle input[name="sortDirection"]').forEach(setupDirectionToggle);
 
-  const canonicalFilterParams = (form) => {
-    const params = new URLSearchParams(new FormData(form));
-    params.delete("page");
-    if (params.get("tagMode") === "any") params.delete("tagMode");
-    if (params.get("solved") === "all") params.delete("solved");
-    if (params.get("sort") === "contest") params.delete("sort");
-    if (params.get("sortDirection") === "desc") params.delete("sortDirection");
-    if (params.get("pageSize") === "50") params.delete("pageSize");
-    for (const key of [...params.keys()]) {
-      if (params.getAll(key).every((value) => value === "")) params.delete(key);
-    }
-    return params;
-  };
-
   document.addEventListener(
     "click",
     (event) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
-      const reset = target.closest("[data-filter-reset]");
-      const form = reset?.closest("form");
-      if (form) resetFilterForm(form);
 
       const saveDefault = target.closest("[data-filter-save-default]");
       const defaultForm = saveDefault?.closest("form");
@@ -132,7 +87,7 @@
       event.preventDefault();
       event.stopPropagation();
       const status = defaultForm.querySelector("[data-filter-default-status]");
-      const body = canonicalFilterParams(defaultForm);
+      const body = new URLSearchParams(new FormData(defaultForm));
       if (status) status.textContent = "Saving...";
 
       fetch("/preferences/default-filters", {

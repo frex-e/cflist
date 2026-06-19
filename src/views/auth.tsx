@@ -1,82 +1,102 @@
 import type { Child } from "hono/jsx";
+import { safeReturnToWithDefault } from "../http/return-to.js";
 import { layout } from "./layout.js";
+import { render } from "./render.js";
 
 type AuthPageOptions = {
   error?: string;
   returnTo?: string;
 };
 
-const render = (content: Child): string => String(content);
-
-const safeReturnTo = (returnTo: string | undefined): string => {
-  if (!returnTo?.startsWith("/") || returnTo.startsWith("//")) return "/problems";
-  return returnTo;
+type AuthPageConfig = {
+  title: string;
+  activeNav: "sign-in" | "sign-up";
+  heading: string;
+  action: string;
+  submitLabel: string;
+  alternateHref: string;
+  alternatePrompt: string;
+  alternateLinkText: string;
+  fields: Child;
 };
 
-export const signInPage = (options: AuthPageOptions = {}): string => {
-  const returnTo = safeReturnTo(options.returnTo);
+const AuthPage = (options: AuthPageOptions, config: AuthPageConfig): string => {
+  const returnTo = safeReturnToWithDefault(options.returnTo);
 
   return layout({
-    title: "Sign In",
-    activeNav: "sign-in",
+    title: config.title,
+    activeNav: config.activeNav,
     body: render(
       <section class="auth-panel">
-        <h1>Sign in</h1>
+        <h1>{config.heading}</h1>
         {options.error ? <p class="form-error">{options.error}</p> : ""}
-        <form class="auth-form" method="post" action="/sign-in">
+        <form class="auth-form" method="post" action={config.action}>
           <input type="hidden" name="returnTo" value={returnTo} />
-          <label>
-            Email
-            <input type="email" name="email" autocomplete="email" required />
-          </label>
-          <label>
-            Password
-            <input type="password" name="password" autocomplete="current-password" required />
-          </label>
-          <button type="submit">Sign in</button>
+          {config.fields}
+          <button type="submit">{config.submitLabel}</button>
         </form>
         <p>
-          Need an account? <a href={`/sign-up?returnTo=${encodeURIComponent(returnTo)}`}>Sign up</a>
+          {config.alternatePrompt} <a href={`${config.alternateHref}?returnTo=${encodeURIComponent(returnTo)}`}>{config.alternateLinkText}</a>
         </p>
       </section>,
     ),
   });
 };
 
-export const signUpPage = (options: AuthPageOptions = {}): string => {
-  const returnTo = safeReturnTo(options.returnTo);
+export const signInPage = (options: AuthPageOptions = {}): string => {
+  return AuthPage(options, {
+    title: "Sign In",
+    activeNav: "sign-in",
+    heading: "Sign in",
+    action: "/sign-in",
+    submitLabel: "Sign in",
+    alternateHref: "/sign-up",
+    alternatePrompt: "Need an account?",
+    alternateLinkText: "Sign up",
+    fields: (
+      <>
+        <label>
+          Email
+          <input type="email" name="email" autocomplete="email" required />
+        </label>
+        <label>
+          Password
+          <input type="password" name="password" autocomplete="current-password" required />
+        </label>
+      </>
+    ),
+  });
+};
 
-  return layout({
+export const signUpPage = (options: AuthPageOptions = {}): string => {
+  return AuthPage(options, {
     title: "Sign Up",
     activeNav: "sign-up",
-    body: render(
-      <section class="auth-panel">
-        <h1>Create account</h1>
-        {options.error ? <p class="form-error">{options.error}</p> : ""}
-        <form class="auth-form" method="post" action="/sign-up">
-          <input type="hidden" name="returnTo" value={returnTo} />
-          <label>
-            Name
-            <input type="text" name="name" autocomplete="name" required />
-          </label>
-          <label>
-            Email
-            <input type="email" name="email" autocomplete="email" required />
-          </label>
-          <label>
-            Password
-            <input type="password" name="password" autocomplete="new-password" minlength={8} required />
-          </label>
-          <label>
-            Codeforces handle
-            <input type="text" name="cfHandle" autocomplete="username" required />
-          </label>
-          <button type="submit">Create account</button>
-        </form>
-        <p>
-          Already have an account? <a href={`/sign-in?returnTo=${encodeURIComponent(returnTo)}`}>Sign in</a>
-        </p>
-      </section>,
+    heading: "Create account",
+    action: "/sign-up",
+    submitLabel: "Create account",
+    alternateHref: "/sign-in",
+    alternatePrompt: "Already have an account?",
+    alternateLinkText: "Sign in",
+    fields: (
+      <>
+        <label>
+          Name
+          <input type="text" name="name" autocomplete="name" required />
+        </label>
+        <label>
+          Email
+          <input type="email" name="email" autocomplete="email" required />
+        </label>
+        <label>
+          Password
+          <input type="password" name="password" autocomplete="new-password" minlength={8} required />
+        </label>
+        <label>
+          Codeforces handle
+          <input type="text" name="cfHandle" autocomplete="username" required />
+        </label>
+      </>
     ),
   });
 };

@@ -1,27 +1,19 @@
 import type { Child } from "hono/jsx";
-import { defaultSortDirection, type FilterOptions, type ListResult, type ProblemFilters, type ProblemRow } from "../db/queries.js";
-import { formatDateTime, formatNumber } from "./html.js";
+import type { ProblemRow } from "../db/queries.js";
+import { formatNumber } from "./html.js";
 import { layout } from "./layout.js";
-import type { AuthUser } from "../auth.js";
+import { PageHero } from "./page-hero.js";
 import { ratingTitle } from "./rating.js";
-
-type ProblemsPageOptions = {
-  filters: ProblemFilters;
-  options: FilterOptions;
-  result: ListResult;
-  latestSync?: { started_at: string; finished_at: string | null; status: string; message: string | null };
-  syncRunning: boolean;
-  user: AuthUser;
-};
-
-type PagerData = {
-  totalPages: number;
-  prev: string;
-  next: string;
-  returnTo: string;
-};
-
-const render = (content: Child): string => String(content);
+import { render } from "./render.js";
+import { SyncPanel } from "./sync-panel.js";
+import {
+  fragmentSwapAttrs,
+  fragmentUrl,
+  pagerData,
+  problemListUrl,
+  type PagerData,
+  type ProblemsPageOptions,
+} from "./problems/url.js";
 
 const selected = (current: string | undefined, value: string): boolean => current === value;
 
@@ -33,48 +25,7 @@ const Option = (props: { value: string | number; label: string; selected?: boole
   );
 };
 
-export const problemListUrl = (filters: ProblemFilters, page: number): string => {
-  const params = new URLSearchParams();
-  if (filters.q) params.set("q", filters.q);
-  if (filters.minRating !== undefined) params.set("minRating", String(filters.minRating));
-  if (filters.maxRating !== undefined) params.set("maxRating", String(filters.maxRating));
-  for (const tag of filters.tags) params.append("tags", tag);
-  if (filters.tagMode !== "any") params.set("tagMode", filters.tagMode);
-  if (filters.contestFamily) params.set("contestFamily", filters.contestFamily);
-  for (const division of filters.divisions) params.append("division", division);
-  if (filters.solved !== "all") params.set("solved", filters.solved);
-  if (filters.showTags) params.set("showTags", "1");
-  if (filters.sort !== "contest") params.set("sort", filters.sort);
-  if (filters.sortDirection !== defaultSortDirection(filters.sort)) params.set("sortDirection", filters.sortDirection);
-  if (filters.pageSize !== 50) params.set("pageSize", String(filters.pageSize));
-  if (page !== 1) params.set("page", String(page));
-  const query = params.toString();
-  return query ? `/problems?${query}` : "/problems";
-};
-
-export const problemListQuery = (filters: ProblemFilters): string => {
-  const url = problemListUrl(filters, 1);
-  return url.includes("?") ? url.slice(url.indexOf("?") + 1) : "";
-};
-
-const fragmentUrl = (url: string, extra?: Record<string, string>): string => {
-  const parsed = new URL(url, "http://cflist.local");
-  parsed.pathname = "/problems/fragment";
-  for (const [key, value] of Object.entries(extra ?? {})) {
-    parsed.searchParams.set(key, value);
-  }
-  return `${parsed.pathname}${parsed.search}`;
-};
-
-const pagerData = (filters: ProblemFilters, total: number): PagerData => {
-  const totalPages = Math.max(1, Math.ceil(total / filters.pageSize));
-  return {
-    totalPages,
-    prev: filters.page > 1 ? problemListUrl(filters, filters.page - 1) : "",
-    next: filters.page < totalPages ? problemListUrl(filters, filters.page + 1) : "",
-    returnTo: problemListUrl(filters, filters.page),
-  };
-};
+export { problemListQuery, problemListUrl } from "./problems/url.js";
 
 export const problemSummaryText = ({ result, filters }: ProblemsPageOptions): string => {
   return `${formatNumber(result.total)} matched, ${formatNumber(result.solved)} solved, ${formatNumber(result.unsolved)} unsolved for ${filters.cfHandle}`;
@@ -183,11 +134,6 @@ const ProblemRow = (props: {
   );
 };
 
-export const problemRow = (
-  row: ProblemRow,
-  options: { showTags: boolean; returnTo: string },
-): string => render(<ProblemRow row={row} {...options} />);
-
 const FilterForm = ({ filters, options }: ProblemsPageOptions) => {
   const minAvailableRating = options.ratings[0] ?? 800;
   const maxAvailableRating = options.ratings.at(-1) ?? 3500;
@@ -222,10 +168,6 @@ const FilterForm = ({ filters, options }: ProblemsPageOptions) => {
           type="submit"
           formmethod="post"
           formaction="/preferences/default-filters"
-          hx-post="/preferences/default-filters"
-          hx-include="closest form"
-          hx-push-url="false"
-          hx-swap="none"
           data-filter-save-default
         >
           Set default
@@ -361,59 +303,29 @@ const FilterForm = ({ filters, options }: ProblemsPageOptions) => {
   );
 };
 
-const SyncPanel = (options: ProblemsPageOptions) => {
-  const { filters, latestSync, syncRunning } = options;
-  const status = syncRunning
-    ? "Sync running"
-    : latestSync
-      ? `${latestSync.status} ${latestSync.finished_at ? `at ${formatDateTime(latestSync.finished_at)}` : ""}`
-      : "No sync yet";
-
-  return (
-    <section class="sync-panel" aria-label="Codeforces refresh">
-      <div>
-        <span>{status}</span>
-        {latestSync?.message ? <p>{latestSync.message}</p> : ""}
-      </div>
-      <form method="post" action="/admin/sync">
-        <input type="hidden" name="returnTo" value={problemListUrl(filters, filters.page)} />
-        <button type="submit" disabled={syncRunning}>
-          Refresh
-        </button>
-      </form>
-    </section>
-  );
-};
+const SyncPanelAside = (options: ProblemsPageOptions) => (
+  <SyncPanel
+    latestSync={options.latestSync}
+    syncRunning={options.syncRunning}
+    returnTo={problemListUrl(options.filters, options.filters.page)}
+  />
+);
 
 const Pager = ({ prev, next, oob }: { prev: string; next: string; oob?: boolean }) => {
+  const prevAttrs = prev ? fragmentSwapAttrs(prev) : undefined;
+  const nextAttrs = next ? fragmentSwapAttrs(next) : undefined;
+
   return (
     <div class="pager" id="problem-pager" hx-swap-oob={oob ? "true" : undefined}>
       {prev ? (
-        <a
-          class="button secondary"
-          href={prev}
-          hx-get={fragmentUrl(prev)}
-          hx-target="#problem-list"
-          hx-swap="outerHTML"
-          hx-push-url="true"
-          hx-indicator="#problem-list"
-        >
+        <a class="button secondary" href={prev} {...prevAttrs}>
           Previous
         </a>
       ) : (
         <span class="button disabled">Previous</span>
       )}
       {next ? (
-        <a
-          class="button secondary"
-          data-next-page
-          href={next}
-          hx-get={fragmentUrl(next)}
-          hx-target="#problem-list"
-          hx-swap="outerHTML"
-          hx-push-url="true"
-          hx-indicator="#problem-list"
-        >
+        <a class="button secondary" href={next} {...nextAttrs}>
           Next
         </a>
       ) : (
@@ -466,7 +378,7 @@ const ProblemRows = (props: ProblemsPageOptions & { pager: PagerData }) => {
   );
 };
 
-const rangeLabel = (filters: ProblemFilters, total: number, append = false): string => {
+const rangeLabel = (filters: ProblemsPageOptions["filters"], total: number, append = false): string => {
   if (total === 0) return "Showing 0 of 0";
   if (append) {
     const cumulativeEnd = Math.min(filters.page * filters.pageSize, total);
@@ -482,20 +394,7 @@ const ProblemsListFragment = (options: ProblemsPageOptions) => {
   const pager = pagerData(filters, result.total);
 
   return (
-    <section
-      id="problem-list"
-      class="table-wrap"
-      data-problem-list
-      data-page={filters.page}
-      data-page-size={filters.pageSize}
-      data-total-pages={pager.totalPages}
-      data-total={result.total}
-      data-solved={result.solved}
-      data-unsolved={result.unsolved}
-      data-shown={result.rows.length}
-      data-next-url={pager.next || undefined}
-      data-summary={problemSummaryText(options)}
-    >
+    <section id="problem-list" class="table-wrap">
       <div class="table-head">
         <span id="problem-page-label" data-page-label>
           {rangeLabel(filters, result.total)}
@@ -560,17 +459,14 @@ export const problemsPage = (options: ProblemsPageOptions): string => {
     title: "CFList Problems",
     user: options.user,
     activeNav: "problems",
+    scripts: ["/public/filters.js"],
     body: (
       <>
-        <section class="hero">
-          <div>
-            <h1>Codeforces Problems</h1>
-            <p id="problem-summary" data-problem-summary>
-              {problemSummaryText(options)}
-            </p>
-          </div>
-          <SyncPanel {...options} />
-        </section>
+        <PageHero
+          title="Codeforces Problems"
+          subtitle={<p id="problem-summary" data-problem-summary>{problemSummaryText(options)}</p>}
+          aside={<SyncPanelAside {...options} />}
+        />
         <div class="workspace">
           <FilterForm {...options} />
           <ProblemsListFragment {...options} />

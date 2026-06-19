@@ -1,7 +1,6 @@
 import type { Db } from "./connection.js";
 
-export const migrate = (db: Db): void => {
-  db.exec(`
+const MIGRATION_1_SQL = `
     CREATE TABLE IF NOT EXISTS "user" (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -221,5 +220,68 @@ export const migrate = (db: Db): void => {
     CREATE INDEX IF NOT EXISTS idx_contest_sync_jobs_claim ON contest_sync_jobs(status, available_at, priority, id);
     CREATE INDEX IF NOT EXISTS idx_contest_sync_jobs_user ON contest_sync_jobs(user_id, status);
     CREATE INDEX IF NOT EXISTS idx_sync_runs_started_at ON sync_runs(started_at);
+  `;
+
+const MIGRATION_2_SQL = `
+    CREATE TABLE IF NOT EXISTS contest_sync_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      cf_handle TEXT NOT NULL,
+      contest_id INTEGER NOT NULL,
+      priority INTEGER NOT NULL DEFAULT 100,
+      status TEXT NOT NULL DEFAULT 'queued',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      available_at TEXT NOT NULL,
+      started_at TEXT,
+      finished_at TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (user_id, contest_id),
+      FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE,
+      FOREIGN KEY (contest_id) REFERENCES contests(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_contest_sync_jobs_claim ON contest_sync_jobs(status, available_at, priority, id);
+    CREATE INDEX IF NOT EXISTS idx_contest_sync_jobs_user ON contest_sync_jobs(user_id, status);
+  `;
+
+const currentVersion = (db: Db): number => {
+  const row = db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number | null };
+  return row.version ?? 0;
+};
+
+const tableExists = (db: Db, name: string): boolean => {
+  const row = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = @name").get({ name }) as { name: string } | undefined;
+  return row !== undefined;
+};
+
+const recordMigration = (db: Db, version: number): void => {
+  db.prepare(
+    "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (@version, @appliedAt)",
+  ).run({ version, appliedAt: new Date().toISOString() });
+};
+
+const applyMigration = (db: Db, version: number, sql: string, skipSqlIfTablesExist?: string): void => {
+  if (currentVersion(db) >= version) return;
+
+  if (skipSqlIfTablesExist && tableExists(db, skipSqlIfTablesExist)) {
+    recordMigration(db, version);
+    return;
+  }
+
+  db.exec(sql);
+  recordMigration(db, version);
+};
+
+export const migrate = (db: Db): void => {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version INTEGER PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    );
   `);
+
+  applyMigration(db, 1, MIGRATION_1_SQL, "problems");
+  applyMigration(db, 2, MIGRATION_2_SQL);
 };
