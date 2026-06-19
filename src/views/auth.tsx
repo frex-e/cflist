@@ -18,6 +18,7 @@ export const signInPage = (options: AuthPageOptions = {}): string => {
 
   return layout({
     title: "Sign In",
+    activeNav: "sign-in",
     body: render(
       <section class="auth-panel">
         <h1>Sign in</h1>
@@ -47,6 +48,7 @@ export const signUpPage = (options: AuthPageOptions = {}): string => {
 
   return layout({
     title: "Sign Up",
+    activeNav: "sign-up",
     body: render(
       <section class="auth-panel">
         <h1>Create account</h1>

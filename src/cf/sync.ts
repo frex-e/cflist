@@ -30,6 +30,7 @@ type AcceptedProblem = {
 const MAX_CONTEST_RESULTS_ENQUEUE = 30;
 const MAX_CONTEST_RESULTS_BACKFILL_ENQUEUE = 3;
 const MAX_CONTEST_JOB_ATTEMPTS = 3;
+const MAX_CONTEST_JOBS_PER_KICK = 3;
 const STALE_CONTEST_JOB_MINUTES = 30;
 
 type ContestProblemResult = {
@@ -903,7 +904,6 @@ export const hydrateUserContestResult = async (
   });
 
   const row = standings.rows.find((standingsRow) => hasHandle(standingsRow, cfHandle));
-  if (!row && !existingRatingChange) return;
 
   const contest = contestsById.get(contestId);
   const endTime = contest ? contestEndTime(contest) : undefined;
@@ -913,7 +913,16 @@ export const hydrateUserContestResult = async (
 
       const result = row?.problemResults[index];
       const firstAccepted = accepted.get(problemKey(contestId, problem.index));
+      const acceptedDuringContest =
+        firstAccepted !== undefined
+        && contest?.startTimeSeconds !== undefined
+        && endTime !== undefined
+        && firstAccepted.firstAcceptedAtSeconds >= contest.startTimeSeconds
+        && firstAccepted.firstAcceptedAtSeconds <= endTime;
       const solvedInContest = result?.bestSubmissionTimeSeconds !== undefined && result.points > 0;
+      const fallbackBestSubmissionTime = acceptedDuringContest && contest?.startTimeSeconds !== undefined
+        ? firstAccepted.firstAcceptedAtSeconds - contest.startTimeSeconds
+        : null;
       const acceptedAfterContest =
         firstAccepted !== undefined
         && !solvedInContest
@@ -924,12 +933,16 @@ export const hydrateUserContestResult = async (
         points: result?.points ?? null,
         penalty: result?.penalty ?? null,
         rejectedAttemptCount: result?.rejectedAttemptCount ?? null,
-        bestSubmissionTimeSeconds: result?.bestSubmissionTimeSeconds ?? null,
-        solvedInContest: solvedInContest ? 1 as const : 0 as const,
+        bestSubmissionTimeSeconds: result?.bestSubmissionTimeSeconds ?? fallbackBestSubmissionTime,
+        solvedInContest: solvedInContest || acceptedDuringContest ? 1 as const : 0 as const,
         upsolved: acceptedAfterContest ? 1 as const : 0 as const,
       };
     })
     .filter((problem): problem is ContestProblemResult => problem !== undefined);
+
+  if (!row && !existingRatingChange && problemResults.every((problem) => !problem.solvedInContest && !problem.upsolved)) {
+    return;
+  }
 
   const upsertContestResult = db.prepare(`
     INSERT INTO user_contest_results (
@@ -1069,8 +1082,8 @@ export const runContestSyncQueue = async (
   return processed;
 };
 
-export const kickContestSyncQueue = (db: Db): void => {
-  void runContestSyncQueue(db).catch((error) => {
+export const kickContestSyncQueue = (db: Db, client = new CodeforcesClient()): void => {
+  void runContestSyncQueue(db, client, { maxJobs: MAX_CONTEST_JOBS_PER_KICK }).catch((error) => {
     console.error("Contest sync queue failed:", error);
   });
 };

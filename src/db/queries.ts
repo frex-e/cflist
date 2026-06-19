@@ -168,7 +168,7 @@ const buildWhere = (
   const params: SqlParams = { userId: filters.userId };
 
   if (filters.q) {
-    clauses.push("(p.name LIKE @q OR CAST(p.contest_id AS TEXT) || p.problem_index LIKE @q)");
+    clauses.push("(p.name LIKE @q OR c.name LIKE @q OR CAST(p.contest_id AS TEXT) || p.problem_index LIKE @q)");
     params.q = `%${filters.q}%`;
   }
   if (filters.minRating !== undefined) {

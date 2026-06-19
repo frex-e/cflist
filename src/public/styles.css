@@ -131,6 +131,23 @@ button:disabled,
   color: var(--text);
 }
 
+.topnav a[aria-current="page"] {
+  position: relative;
+  color: var(--text);
+  font-weight: 720;
+}
+
+.topnav a[aria-current="page"]::after {
+  position: absolute;
+  right: 0;
+  bottom: -17px;
+  left: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--accent);
+  content: "";
+}
+
 .sign-out-form {
   display: flex;
   align-items: center;
@@ -1099,6 +1116,10 @@ button.status-button {
 
   .topnav {
     gap: 10px;
+  }
+
+  .topnav a[aria-current="page"]::after {
+    bottom: -4px;
   }
 
   .sign-out-form {

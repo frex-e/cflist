@@ -4,8 +4,11 @@ import type { AuthUser } from "../auth.js";
 
 const render = (content: Child): string => String(content);
 
-export const layout = (options: { title: string; body: Child | string; user?: AuthUser }): string => {
+type ActiveNav = "problems" | "contests" | "sign-in" | "sign-up";
+
+export const layout = (options: { title: string; body: Child | string; user?: AuthUser; activeNav?: ActiveNav }): string => {
   const body = typeof options.body === "string" ? raw(options.body) : options.body;
+  const activeNav = options.activeNav;
 
   return `<!doctype html>${render(
     <html lang="en">
@@ -23,8 +26,12 @@ export const layout = (options: { title: string; body: Child | string; user?: Au
             CFList
           </a>
           <nav class="topnav">
-            <a href="/problems">Problems</a>
-            <a href="/contests">Contests</a>
+            <a href="/problems" aria-current={activeNav === "problems" ? "page" : undefined}>
+              Problems
+            </a>
+            <a href="/contests" aria-current={activeNav === "contests" ? "page" : undefined}>
+              Contests
+            </a>
             <a href="https://codeforces.com/problemset" rel="noreferrer" target="_blank">
               Codeforces
             </a>
@@ -35,8 +42,12 @@ export const layout = (options: { title: string; body: Child | string; user?: Au
               </form>
             ) : (
               <>
-                <a href="/sign-in">Sign in</a>
-                <a href="/sign-up">Sign up</a>
+                <a href="/sign-in" aria-current={activeNav === "sign-in" ? "page" : undefined}>
+                  Sign in
+                </a>
+                <a href="/sign-up" aria-current={activeNav === "sign-up" ? "page" : undefined}>
+                  Sign up
+                </a>
               </>
             )}
           </nav>

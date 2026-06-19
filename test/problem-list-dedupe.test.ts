@@ -151,6 +151,16 @@ test("problem list keeps the matching alias when filters narrow to one contest d
   });
 });
 
+test("problem list search matches contest names", () => {
+  withDb((db) => {
+    const result = listProblems(db, filters({ q: "Div. 1" }));
+
+    assert.equal(result.total, 1);
+    assert.equal(result.rows[0]?.contest_id, 2219);
+    assert.equal(result.rows[0]?.contest_name, "Codeforces Round (Div. 1)");
+  });
+});
+
 test("contest result listing keeps contest-specific problem placements", () => {
   withDb((db) => {
     for (const contestId of [2219, 2220]) {

@@ -177,7 +177,7 @@ const ProblemRow = (props: {
           <span class="tags-hidden">Hidden</span>
         )}
       </td>
-      <td>{row.derived_label ?? row.contest_name ?? ""}</td>
+      <td>{row.contest_name ?? row.derived_label ?? ""}</td>
       <td class="num">{formatNumber(row.solved_count)}</td>
     </tr>
   );
@@ -559,6 +559,7 @@ export const problemsPage = (options: ProblemsPageOptions): string => {
   return layout({
     title: "CFList Problems",
     user: options.user,
+    activeNav: "problems",
     body: (
       <>
         <section class="hero">

@@ -49,6 +49,7 @@ PORT=3001 npm start
 - Preserve URL-backed filters.
 - Treat Codeforces solved status as authoritative; local manual solves are additive.
 - Import contest-scoped problems from standings when `problemset.problems` omits them.
+- If a submission-discovered contest lacks a matching standings row, keep rank/score blank but use accepted submissions for contest problem pills.
 - Key app-owned user data by auth user id, not Codeforces handle. The handle is profile data used for Codeforces API calls.
 - Keep JavaScript enhancements progressive; forms should still work without JS.
 - Run `npm test` after behavior changes.

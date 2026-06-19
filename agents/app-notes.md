@@ -37,9 +37,9 @@ Important constraints:
 - `contests`, `problems`, and `problem_tags` are shared catalog data.
 - `user_problem_status`, `user_problem_overrides`, `user_contest_results`, `user_contest_problem_results`, and `user_default_filters` are keyed by auth `user_id`.
 - User sync refreshes solved status and basic contest rows from `user.rating`, then queues standings hydration for up to 30 recent contests plus up to 3 older incomplete contests per refresh. Contest participation is discovered from `user.rating` plus in-contest submissions when possible.
-- Contest problem pills classify solved-in-contest from standings rows and upsolves from accepted submissions after contest end.
+- Contest problem pills classify solved-in-contest from standings rows and upsolves from accepted submissions after contest end. If a submission-discovered contest has no exact standings row for the handle, accepted submissions still provide fallback solved/upsolved pills while rank/score stay blank.
 - Shared contest endpoint responses are cached in `contest_rating_changes_cache` and `contest_standings_cache`; performance estimates are cached in `contest_performance_cache`.
-- `contest_sync_jobs` is a SQLite-backed low-priority queue drained by the web process. It hydrates one user/contest row at a time, preserving the single-process deployment shape.
+- `contest_sync_jobs` is a SQLite-backed low-priority queue drained in small batches by the web process. It hydrates one user/contest row at a time, preserving the single-process deployment shape.
 - User sync skips complete existing contest rows, recomputes only cheap upsolve flags from `user.status`, and leaves performance/standings work to queued hydration.
 - User sync commits catalog, solved-status, and basic rating updates before contest refresh work. Queued contest rows are then written one contest at a time as each result is calculated.
 - Standings can include contest-scoped problems absent from `problemset.problems`, especially shared Div. 1/Div. 2 rounds. User sync imports those standings problems into `problems` before writing `user_contest_problem_results`.
@@ -53,6 +53,7 @@ Important constraints:
 - Division and tag filters are checkbox lists.
 - Rating filter uses sliders backed by hidden `minRating` / `maxRating` fields.
 - Problem id/name links go directly to the contest-scoped Codeforces problem page; there is no local problem detail page.
+- Problem search (`q`) matches problem names, problem ids such as `1900A`, and raw contest names.
 - `/problems` de-duplicates shared contest aliases by problem metadata after applying filters, and aggregates solved state across the visible alias group. Contest history still preserves contest-specific problem indices.
 - `/contests` shows recent synced contest rows with rank, score, rating delta, estimated performance, and per-problem solve/upsolve pills.
 - Bare `/problems` applies the signed-in user's saved default filters from SQLite when one is set. Explicit query params still win.

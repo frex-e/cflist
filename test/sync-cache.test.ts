@@ -156,6 +156,48 @@ class FakeClient {
   }
 }
 
+class SubmissionOnlyClient extends FakeClient {
+  async userRating(): Promise<CfRatingChange[]> {
+    return [];
+  }
+
+  async contestRatingChanges(): Promise<CfRatingChange[]> {
+    throw new Error("rating changes should not be fetched");
+  }
+
+  async contestStandings(): Promise<CfStandings> {
+    this.standingsCalls += 1;
+    return {
+      contest: {
+        id: 100,
+        name: "Codeforces Round 100 (Div. 2)",
+        startTimeSeconds: 1000,
+        durationSeconds: 7200,
+      },
+      problems: [
+        { contestId: 100, index: "A", name: "A", tags: [] },
+        { contestId: 100, index: "B", name: "B", tags: [] },
+      ],
+      rows: [
+        {
+          party: {
+            contestId: 100,
+            members: [{ handle: "someone-else" }],
+            participantType: "CONTESTANT",
+          },
+          rank: 1,
+          points: 2,
+          penalty: 10,
+          problemResults: [
+            { points: 1, bestSubmissionTimeSeconds: 100, rejectedAttemptCount: 0 },
+            { points: 1, bestSubmissionTimeSeconds: 200, rejectedAttemptCount: 0 },
+          ],
+        },
+      ],
+    };
+  }
+}
+
 class BackfillClient {
   standingsCalls: number[] = [];
 
@@ -298,6 +340,44 @@ test("user sync imports standings-only contest problems before writing contest r
     });
     assert.equal(problemsetProblem.solved_count, 50);
     assert.equal(upsolved.upsolved, 1);
+  } finally {
+    db.close();
+    syncState.userRunning.clear();
+    syncState.contestQueueRunning = false;
+  }
+});
+
+test("contest hydration falls back to accepted submissions when standings row is absent", async () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+  insertUser(db);
+  syncState.catalogRunning = false;
+  syncState.userRunning.clear();
+
+  try {
+    const client = new SubmissionOnlyClient();
+    await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
+    await runContestSyncQueue(db, client as unknown as CodeforcesClient);
+
+    const contest = db
+      .prepare("SELECT rank, points, old_rating, new_rating FROM user_contest_results WHERE contest_id = 100")
+      .get() as { rank: number | null; points: number | null; old_rating: number | null; new_rating: number | null };
+    const problems = db
+      .prepare(
+        `
+        SELECT problem_index, solved_in_contest, upsolved, best_submission_time_seconds
+        FROM user_contest_problem_results
+        ORDER BY problem_index
+      `,
+      )
+      .all() as { problem_index: string; solved_in_contest: number; upsolved: number; best_submission_time_seconds: number | null }[];
+
+    assert.deepEqual({ ...contest }, { rank: null, points: null, old_rating: null, new_rating: null });
+    assert.deepEqual(problems.map((problem) => ({ ...problem })), [
+      { problem_index: "A", solved_in_contest: 1, upsolved: 0, best_submission_time_seconds: 200 },
+      { problem_index: "B", solved_in_contest: 0, upsolved: 1, best_submission_time_seconds: null },
+    ]);
   } finally {
     db.close();
     syncState.userRunning.clear();

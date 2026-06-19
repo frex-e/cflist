@@ -281,6 +281,7 @@ export const contestsPage = (options: ContestsPageOptions): string => {
   return layout({
     title: "CFList Contests",
     user: options.user,
+    activeNav: "contests",
     body: (
       <>
         <section class="hero">
