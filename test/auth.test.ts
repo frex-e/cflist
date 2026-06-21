@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { createApp } from "../src/app.js";
+import { setVerifyHandleForTests } from "../src/cf/verify-handle.js";
 import { migrate } from "../src/db/migrate.js";
 
 type AppOptions = {
@@ -13,6 +14,8 @@ const withApp = async (
   fn: (app: ReturnType<typeof createApp>, db: DatabaseSync) => Promise<void>,
   options: AppOptions = {},
 ): Promise<void> => {
+  setVerifyHandleForTests(async () => true);
+
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
   migrate(db);
@@ -34,6 +37,7 @@ const withApp = async (
     });
     await fn(app, db);
   } finally {
+    setVerifyHandleForTests(undefined);
     db.close();
   }
 };
@@ -157,6 +161,63 @@ test("complete profile sets cfHandle and unlocks protected pages", async () => {
 
     const problemsResponse = await app.request("/problems", { headers: { cookie } });
     assert.equal(problemsResponse.status, 200);
+  });
+});
+
+test("complete profile rejects unknown Codeforces handle", async () => {
+  await withApp(async (app, db) => {
+    const cookie = await signUpWithoutCfHandle(app, db);
+    setVerifyHandleForTests(async () => false);
+
+    const completeResponse = await app.request("/complete-profile", {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        cfHandle: "not-a-real-handle",
+        returnTo: "/problems",
+      }).toString(),
+    });
+    assert.equal(completeResponse.status, 302);
+    assert.match(completeResponse.headers.get("location") ?? "", /error=/);
+
+    const user = db.prepare(`SELECT cfHandle FROM "user" WHERE email = 'user@example.com'`).get() as {
+      cfHandle: string;
+    };
+    assert.equal(user.cfHandle, "");
+  });
+});
+
+test("settings handle page allows changing handle", async () => {
+  await withApp(async (app, db) => {
+    const cookie = await signUp(app, db);
+
+    const pageResponse = await app.request("/settings/handle", { headers: { cookie } });
+    assert.equal(pageResponse.status, 200);
+    const html = await pageResponse.text();
+    assert.match(html, /Change Codeforces handle/);
+    assert.match(html, /tourist/);
+
+    const saveResponse = await app.request("/settings/handle", {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        cfHandle: "Petr",
+        returnTo: "/problems",
+      }).toString(),
+    });
+    assert.equal(saveResponse.status, 302);
+    assert.equal(saveResponse.headers.get("location"), "/problems");
+
+    const user = db.prepare(`SELECT cfHandle FROM "user" WHERE email = 'user@example.com'`).get() as {
+      cfHandle: string;
+    };
+    assert.equal(user.cfHandle, "Petr");
   });
 });
 

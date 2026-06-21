@@ -51,9 +51,20 @@ npm run build
 npm start
 ```
 
-For Docker:
+For Docker (production example):
 
 ```sh
 docker build -t cflist .
-docker run -p 3000:3000 -v cflist-data:/app/data cflist
+docker run -p 3000:3000 \
+  -e BETTER_AUTH_URL=https://your-domain.example.com \
+  -e BETTER_AUTH_SECRET="$(openssl rand -base64 32)" \
+  -e GITHUB_CLIENT_ID=your_client_id \
+  -e GITHUB_CLIENT_SECRET=your_client_secret \
+  -e AUTH_GITHUB_ONLY=true \
+  -v cflist-data:/app/data \
+  cflist
 ```
+
+Register the GitHub OAuth callback as `https://your-domain.example.com/api/auth/callback/github`.
+
+Health check: `GET /healthz` returns `{ "ok": true }` when the database is reachable.

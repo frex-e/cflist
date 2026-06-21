@@ -4,10 +4,21 @@
 
 - `HOST` defaults to `127.0.0.1`; Docker sets `HOST=0.0.0.0`.
 - `DB_PATH` defaults to `./data/cflist.sqlite`.
-- Set `BETTER_AUTH_SECRET` or `AUTH_SECRET` to a random 32+ byte value outside local development.
-- Set `BETTER_AUTH_URL` or `AUTH_BASE_URL` to the public origin in deployment.
+- Set `BETTER_AUTH_SECRET` or `AUTH_SECRET` to a random 32+ byte value outside local development. The server refuses to start in production without it.
+- Set `BETTER_AUTH_URL` or `AUTH_BASE_URL` to the public HTTPS origin in production. The server refuses localhost/127.0.0.1 values when `NODE_ENV=production`.
 - Optional GitHub OAuth: set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` from a GitHub OAuth App. Register callback URL `{AUTH_BASE_URL}/api/auth/callback/github`. Ensure `BETTER_AUTH_URL` matches the public origin exactly or OAuth redirects will fail. Set `AUTH_GITHUB_ONLY=true` in production to disable email/password sign-in when you have no mail provider; GitHub sign-in creates new accounts and sends new users to `/complete-profile` for a Codeforces handle. GitHub and email/password are separate sign-in paths and are not linked when emails match.
 - One Node process plus one persisted SQLite file. If multiple instances ever run, move contest queue draining to a separate command/cron or add a database lock.
+- `/healthz` returns `{ ok: true }` when the DB is reachable; use it as a liveness/readiness probe.
+- The process handles `SIGTERM`/`SIGINT`: stops background sync timers, closes the HTTP server, then closes the DB.
+
+## Backups
+
+SQLite runs in WAL mode (`PRAGMA journal_mode = WAL`). To back up safely:
+
+1. Prefer copying the database while the app is stopped, or
+2. Run `PRAGMA wal_checkpoint(TRUNCATE)` on a live connection, then copy `cflist.sqlite` along with any `-wal` / `-shm` sidecar files if they still exist.
+
+A naive `cp` of only the main `.sqlite` file while the app is writing can produce an inconsistent snapshot.
 
 ## Design tradeoffs
 

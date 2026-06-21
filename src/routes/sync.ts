@@ -1,7 +1,7 @@
 import type { Context, Hono } from "hono";
 import type { AuthUser, AuthSession } from "../auth.js";
 import type { Db } from "../db/connection.js";
-import { syncState } from "../cf/sync.js";
+import { requeueFailedContestJobsForUser, syncState } from "../cf/sync.js";
 import { firstString } from "../http/forms.js";
 import { safeReturnTo } from "../http/return-to.js";
 import { buildSyncPanelOptions } from "../http/sync-panel.js";
@@ -50,6 +50,7 @@ export const registerSyncRoutes = (
     const returnTo = safeReturnTo(firstString(form.returnTo)) ?? "/problems";
     const refreshPage = refreshPageFrom(firstString(form.refreshPage));
     const alreadyRunning = syncState.userRunning.has(user.id);
+    requeueFailedContestJobsForUser(db, user.id);
     const started = alreadyRunning ? false : runSyncInBackground(user);
     if (!isHtmx(c)) return c.redirect(returnTo);
 

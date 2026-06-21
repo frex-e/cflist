@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { createApp } from "../src/app.js";
+import { setVerifyHandleForTests } from "../src/cf/verify-handle.js";
 import { migrate } from "../src/db/migrate.js";
 
 export const createTestDb = (): DatabaseSync => {
@@ -131,10 +132,12 @@ export const seedProblem = (
 export const withTestApp = async (
   fn: (app: ReturnType<typeof createApp>, db: DatabaseSync) => Promise<void>,
 ): Promise<void> => {
+  setVerifyHandleForTests(async () => true);
   const db = createTestDb();
   try {
     await fn(createTestApp(db), db);
   } finally {
+    setVerifyHandleForTests(undefined);
     db.close();
   }
 };

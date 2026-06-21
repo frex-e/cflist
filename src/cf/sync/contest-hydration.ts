@@ -7,6 +7,7 @@ import {
   type AcceptedProblem,
 } from "../accepted-problems.js";
 import { CodeforcesClient } from "../client.js";
+import { getCodeforcesClient } from "../shared-client.js";
 import type { CfContest, CfRatingChange } from "../types.js";
 import {
   contestEndTime,
@@ -283,7 +284,7 @@ export const hydrateUserContestResult = async (
   userId: string,
   cfHandle: string,
   contestId: number,
-  client = new CodeforcesClient(),
+  client: CodeforcesClient = getCodeforcesClient(),
 ): Promise<boolean> => {
   const contestsById = loadContestsById(db);
   const accepted = acceptedProblemsFromDb(db, userId);

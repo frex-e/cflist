@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { createApp } from "../src/app.js";
+import { setVerifyHandleForTests } from "../src/cf/verify-handle.js";
 import { migrate } from "../src/db/migrate.js";
 
 const seedProblem = (db: DatabaseSync): void => {
@@ -53,6 +54,7 @@ const seedProblem = (db: DatabaseSync): void => {
 const withSeededApp = async (
   fn: (app: ReturnType<typeof createApp>, db: DatabaseSync) => Promise<void>,
 ): Promise<void> => {
+  setVerifyHandleForTests(async () => true);
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
   migrate(db);
@@ -64,9 +66,11 @@ const withSeededApp = async (
       authBaseURL: "http://localhost",
       authSecret: "test-secret-with-enough-length-32",
       authTrustedOrigins: ["http://localhost"],
+      skipInitialSync: true,
     });
     await fn(app, db);
   } finally {
+    setVerifyHandleForTests(undefined);
     db.close();
   }
 };

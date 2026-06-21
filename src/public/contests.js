@@ -22,4 +22,8 @@
     window.history.pushState({}, "", url);
     refreshTable();
   });
+
+  window.addEventListener("popstate", () => {
+    refreshTable();
+  });
 })();

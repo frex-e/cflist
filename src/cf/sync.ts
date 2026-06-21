@@ -2,6 +2,8 @@ export {
   acceptedProblemsFromSubmissions,
   hydrateUserContestResult,
   kickContestSyncQueue,
+  requeueFailedContestJobsForUser,
+  refreshProblemMetadata,
   runContestSyncQueue,
   syncCatalog,
   syncState,

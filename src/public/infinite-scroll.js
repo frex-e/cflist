@@ -14,7 +14,11 @@
 
   const scrollTop = () => window.scrollY || document.documentElement.scrollTop;
 
-  const userScrolledSinceArm = () => scrollTop() > armedScrollY;
+  const canLoadMore = (sentinel) => {
+    if (!sentinelNearViewport(sentinel)) return false;
+    if (scrollTop() > armedScrollY) return true;
+    return armedScrollY === 0 && scrollTop() === 0;
+  };
 
   const release = () => {
     loading = false;
@@ -26,7 +30,7 @@
 
     const sentinel = getSentinel();
     if (!(sentinel instanceof HTMLElement)) return;
-    if (!userScrolledSinceArm() || !sentinelNearViewport(sentinel)) return;
+    if (!canLoadMore(sentinel)) return;
 
     const url = sentinel.getAttribute("hx-get");
     if (!url) return;

@@ -49,10 +49,6 @@
       refreshAfterUserSync(state);
     }
 
-    if (state.refreshPage === "contests" && state.polling) {
-      refreshContests();
-    }
-
     lastSyncRunning = state.running;
   };
 

@@ -1,5 +1,6 @@
 import { transaction, type Db } from "../../db/connection.js";
 import { CodeforcesClient } from "../client.js";
+import { getCodeforcesClient } from "../shared-client.js";
 import { now } from "./helpers.js";
 import { hydrateUserContestResult } from "./contest-hydration.js";
 import { syncState } from "./state.js";
@@ -7,6 +8,7 @@ import { syncState } from "./state.js";
 const MAX_CONTEST_JOB_ATTEMPTS = 3;
 const MAX_CONTEST_JOBS_PER_KICK = 3;
 const STALE_CONTEST_JOB_MINUTES = 30;
+const PERMANENT_FAILED_RETRY_HOURS = 24;
 
 type ContestJob = {
   id: number;
@@ -136,6 +138,44 @@ const resetStaleContestJobs = (db: Db): void => {
   ).run({ timestamp, staleBefore });
 };
 
+const requeuePermanentFailedContestJobs = (db: Db): void => {
+  const timestamp = now();
+  const retryBefore = new Date(Date.now() - PERMANENT_FAILED_RETRY_HOURS * 60 * 60 * 1000).toISOString();
+  db.prepare(
+    `
+    UPDATE contest_sync_jobs
+    SET status = 'queued',
+      attempts = 0,
+      available_at = @timestamp,
+      updated_at = @timestamp,
+      finished_at = NULL,
+      last_error = 'Requeued permanently failed contest sync job for retry'
+    WHERE status = 'failed'
+      AND attempts >= @maxAttempts
+      AND finished_at IS NOT NULL
+      AND finished_at <= @retryBefore
+  `,
+  ).run({ timestamp, retryBefore, maxAttempts: MAX_CONTEST_JOB_ATTEMPTS });
+};
+
+export const requeueFailedContestJobsForUser = (db: Db, userId: string): number => {
+  const timestamp = now();
+  const result = db.prepare(
+    `
+    UPDATE contest_sync_jobs
+    SET status = 'queued',
+      attempts = 0,
+      available_at = @timestamp,
+      updated_at = @timestamp,
+      finished_at = NULL,
+      last_error = 'Requeued failed contest sync job after manual sync'
+    WHERE user_id = @userId
+      AND status = 'failed'
+  `,
+  ).run({ userId, timestamp });
+  return Number(result.changes);
+};
+
 const finishContestJob = (db: Db, id: number): void => {
   const timestamp = now();
   db.prepare(
@@ -170,7 +210,7 @@ const failContestJob = (db: Db, job: ContestJob, error: unknown): void => {
 
 export const runContestSyncQueue = async (
   db: Db,
-  client = new CodeforcesClient(),
+  client: CodeforcesClient = getCodeforcesClient(),
   options: { maxJobs?: number } = {},
 ): Promise<number> => {
   if (syncState.contestQueueRunning) return 0;
@@ -179,6 +219,7 @@ export const runContestSyncQueue = async (
   let processed = 0;
   try {
     resetStaleContestJobs(db);
+    requeuePermanentFailedContestJobs(db);
     while (options.maxJobs === undefined || processed < options.maxJobs) {
       const job = claimContestJob(db);
       if (!job) break;
@@ -199,7 +240,7 @@ export const runContestSyncQueue = async (
   return processed;
 };
 
-export const kickContestSyncQueue = (db: Db, client = new CodeforcesClient()): void => {
+export const kickContestSyncQueue = (db: Db, client: CodeforcesClient = getCodeforcesClient()): void => {
   void runContestSyncQueue(db, client, { maxJobs: MAX_CONTEST_JOBS_PER_KICK }).catch((error) => {
     console.error("Contest sync queue failed:", error);
   });

@@ -1,14 +1,12 @@
 import { transaction, type Db } from "../../db/connection.js";
 import { finishSyncRun, startSyncRun } from "../../db/writes/sync-runs.js";
-import { latestSuccessfulSyncAgeMs, problemCount } from "../../db/queries.js";
-import { config } from "../../config.js";
-import {
-  acceptedProblemsFromSubmissions,
-} from "../accepted-problems.js";
+import { shouldRefreshProblemMetadata, shouldSyncCatalog } from "../../db/queries/catalog-sync.js";
+import { acceptedProblemsFromSubmissions } from "../accepted-problems.js";
 import { CodeforcesClient } from "../client.js";
+import { getCodeforcesClient } from "../shared-client.js";
 import type { CfRatingChange } from "../types.js";
 import { getCachedStandings, backfillUserContestPerformances } from "./cache.js";
-import { syncCatalog } from "./catalog.js";
+import { refreshProblemMetadata, syncCatalog } from "./catalog.js";
 import { enqueueContestHydrationJobs } from "./contest-queue.js";
 import { recomputeExistingUpsolvesForUser } from "./contest-hydration.js";
 import { contestSortValue, ensureContestsExist, loadContestsById, missingContestIds, now } from "./helpers.js";
@@ -17,11 +15,13 @@ import { syncState } from "./state.js";
 const MAX_CONTEST_RESULTS_ENQUEUE = 30;
 
 const maybeSyncCatalog = async (db: Db, client: CodeforcesClient): Promise<void> => {
-  const maxAgeMs = config.syncIntervalMinutes * 60 * 1000;
-  const age = latestSuccessfulSyncAgeMs(db);
-  const shouldSync = problemCount(db) === 0 || age === undefined || age > maxAgeMs;
-  if (!shouldSync) return;
-  await syncCatalog(db, client);
+  if (shouldSyncCatalog(db)) {
+    await syncCatalog(db, client);
+    return;
+  }
+
+  if (!shouldRefreshProblemMetadata(db)) return;
+  await refreshProblemMetadata(db, client);
 };
 
 const writeBasicContestResults = (
@@ -106,7 +106,7 @@ export const syncUserStatus = async (
   db: Db,
   userId: string,
   cfHandle: string,
-  client = new CodeforcesClient(),
+  client: CodeforcesClient = getCodeforcesClient(),
 ): Promise<void> => {
   if (syncState.userRunning.has(userId)) return;
 

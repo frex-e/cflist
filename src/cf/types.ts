@@ -50,6 +50,15 @@ export type CfSubmission = {
   memoryConsumedBytes?: number;
 };
 
+export type CfUser = {
+  handle: string;
+  firstName?: string;
+  lastName?: string;
+  country?: string;
+  rating?: number;
+  maxRating?: number;
+};
+
 export type CfRatingChange = {
   contestId: number;
   contestName: string;

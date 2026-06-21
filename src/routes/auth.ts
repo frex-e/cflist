@@ -1,10 +1,11 @@
 import type { Hono } from "hono";
 import type { AuthUser, AuthSession } from "../auth.js";
 import { needsCfHandle } from "../auth.js";
+import { verifyCodeforcesHandle } from "../cf/verify-handle.js";
 import { safeReturnToWithDefault } from "../http/return-to.js";
 import { firstString, formToBody } from "../http/forms.js";
 import { signInPage, signUpPage } from "../views/auth.js";
-import { completeProfilePage } from "../views/complete-profile.js";
+import { completeProfilePage, handleSettingsPage } from "../views/complete-profile.js";
 import type { Db } from "../db/connection.js";
 
 const formatSignInError = (error?: string): string | undefined => {
@@ -39,6 +40,33 @@ type AuthRouteDeps = {
   authErrorRedirect: (response: Response, fallback: string) => Promise<Response>;
   redirectWithAuthCookies: (authResponse: Response, location: string) => Response;
   maybeStartInitialSync: (user: AuthUser) => boolean;
+  runSyncInBackground: (user: AuthUser) => boolean;
+};
+
+const saveCfHandle = (
+  db: Db,
+  userId: string,
+  cfHandle: string,
+): void => {
+  db.prepare(`UPDATE "user" SET cfHandle = @cfHandle, updatedAt = @updatedAt WHERE id = @userId`).run({
+    cfHandle,
+    userId,
+    updatedAt: new Date().toISOString(),
+  });
+};
+
+const validateAndNormalizeHandle = async (rawHandle: string | undefined): Promise<string | { error: string }> => {
+  const cfHandle = rawHandle?.trim();
+  if (!cfHandle) {
+    return { error: "Codeforces handle is required" };
+  }
+
+  const exists = await verifyCodeforcesHandle(cfHandle);
+  if (!exists) {
+    return { error: "Codeforces handle not found — check the spelling and try again" };
+  }
+
+  return cfHandle;
 };
 
 export const registerAuthRoutes = (
@@ -108,9 +136,9 @@ export const registerAuthRoutes = (
 
     const form = await c.req.parseBody();
     const returnTo = safeReturnToWithDefault(firstString(form.returnTo));
-    const cfHandle = firstString(form.cfHandle)?.trim();
-    if (!cfHandle) {
-      return c.redirect(`/sign-up?error=${encodeURIComponent("Codeforces handle is required")}`);
+    const handleResult = await validateAndNormalizeHandle(firstString(form.cfHandle));
+    if (typeof handleResult !== "string") {
+      return c.redirect(`/sign-up?error=${encodeURIComponent(handleResult.error)}`);
     }
 
     const response = await deps.proxyAuthForm(
@@ -143,18 +171,56 @@ export const registerAuthRoutes = (
 
     const form = await c.req.parseBody();
     const returnTo = safeReturnToWithDefault(firstString(form.returnTo));
-    const cfHandle = firstString(form.cfHandle)?.trim();
-    if (!cfHandle) {
+    const handleResult = await validateAndNormalizeHandle(firstString(form.cfHandle));
+    if (typeof handleResult !== "string") {
       return c.redirect(
-        `/complete-profile?error=${encodeURIComponent("Codeforces handle is required")}&returnTo=${encodeURIComponent(returnTo)}`,
+        `/complete-profile?error=${encodeURIComponent(handleResult.error)}&returnTo=${encodeURIComponent(returnTo)}`,
       );
     }
 
-    deps.db
-      .prepare(`UPDATE "user" SET cfHandle = @cfHandle, updatedAt = @updatedAt WHERE id = @userId`)
-      .run({ cfHandle, userId: user.id, updatedAt: new Date().toISOString() });
+    saveCfHandle(deps.db, user.id, handleResult);
+    deps.maybeStartInitialSync({ ...user, cfHandle: handleResult });
+    return c.redirect(returnTo);
+  });
 
-    deps.maybeStartInitialSync({ ...user, cfHandle });
+  app.get("/settings/handle", (c) => {
+    const user = c.get("user");
+    if (!user) return c.redirect("/sign-in");
+    if (needsCfHandle(user)) return c.redirect("/complete-profile");
+
+    return c.html(
+      handleSettingsPage({
+        error: c.req.query("error"),
+        returnTo: c.req.query("returnTo") ?? "/problems",
+        user,
+        title: "Change Handle",
+        heading: "Change Codeforces handle",
+        description: "Update your Codeforces handle. Changing it will trigger a full re-sync.",
+      }),
+    );
+  });
+
+  app.post("/settings/handle", async (c) => {
+    const user = c.get("user");
+    if (!user) return c.redirect("/sign-in");
+    if (needsCfHandle(user)) return c.redirect("/complete-profile");
+
+    const form = await c.req.parseBody();
+    const returnTo = safeReturnToWithDefault(firstString(form.returnTo) ?? "/settings/handle");
+    const handleResult = await validateAndNormalizeHandle(firstString(form.cfHandle));
+    if (typeof handleResult !== "string") {
+      return c.redirect(
+        `/settings/handle?error=${encodeURIComponent(handleResult.error)}&returnTo=${encodeURIComponent(returnTo)}`,
+      );
+    }
+
+    const handleChanged = handleResult.toLowerCase() !== user.cfHandle.trim().toLowerCase();
+    saveCfHandle(deps.db, user.id, handleResult);
+
+    if (handleChanged) {
+      deps.runSyncInBackground({ ...user, cfHandle: handleResult });
+    }
+
     return c.redirect(returnTo);
   });
 

@@ -3,32 +3,59 @@ import { layout } from "./layout.js";
 import { render } from "./render.js";
 import type { AuthUser } from "../auth.js";
 
-type CompleteProfilePageOptions = {
+type HandleSettingsPageOptions = {
   error?: string;
   returnTo?: string;
   user: AuthUser;
+  currentHandle?: string;
+  title?: string;
+  heading?: string;
+  description?: string;
 };
 
-export const completeProfilePage = (options: CompleteProfilePageOptions): string => {
+export const handleSettingsPage = (options: HandleSettingsPageOptions): string => {
   const returnTo = safeReturnToWithDefault(options.returnTo);
+  const currentHandle = options.currentHandle ?? options.user.cfHandle ?? "";
 
   return layout({
-    title: "Complete Profile",
+    title: options.title ?? "Codeforces Handle",
     user: options.user,
     body: render(
       <section class="auth-panel">
-        <h1>Codeforces handle</h1>
-        <p>Enter your Codeforces handle to sync solved problems and contest history.</p>
+        <h1>{options.heading ?? "Codeforces handle"}</h1>
+        <p>
+          {options.description ??
+            "Enter your Codeforces handle to sync solved problems and contest history."}
+        </p>
         {options.error ? <p class="form-error">{options.error}</p> : ""}
-        <form class="auth-form" method="post" action="/complete-profile">
+        <form class="auth-form" method="post" action="/settings/handle">
           <input type="hidden" name="returnTo" value={returnTo} />
           <label>
             Codeforces handle
-            <input type="text" name="cfHandle" autocomplete="username" required />
+            <input
+              type="text"
+              name="cfHandle"
+              autocomplete="username"
+              required
+              value={currentHandle}
+            />
           </label>
-          <button type="submit">Continue</button>
+          <button type="submit">Save handle</button>
         </form>
       </section>,
     ),
   });
 };
+
+export const completeProfilePage = (options: {
+  error?: string;
+  returnTo?: string;
+  user: AuthUser;
+}): string =>
+  handleSettingsPage({
+    ...options,
+    title: "Complete Profile",
+    heading: "Codeforces handle",
+    description: "Enter your Codeforces handle to sync solved problems and contest history.",
+    currentHandle: "",
+  });

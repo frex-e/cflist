@@ -1,4 +1,5 @@
 import { transaction, type Db } from "../../db/connection.js";
+import { listProblemsNeedingMetadata } from "../../db/queries/catalog-sync.js";
 import { finishSyncRun, startSyncRun } from "../../db/writes/sync-runs.js";
 import { upsertProblemWithTags } from "../../db/writes/problems.js";
 import {
@@ -7,8 +8,13 @@ import {
 } from "../accepted-problems.js";
 import { classifyContest } from "../classify.js";
 import { CodeforcesClient } from "../client.js";
+import type { CfProblem } from "../types.js";
+import { getCodeforcesClient } from "../shared-client.js";
 import { codeforcesProblemUrl, now } from "./helpers.js";
 import { syncState } from "./state.js";
+
+const hasProblemMetadata = (problem: CfProblem): boolean =>
+  problem.rating != null || problem.tags.length > 0;
 
 const runCatalogSync = async (db: Db, client: CodeforcesClient): Promise<void> => {
   syncState.catalogRunning = true;
@@ -136,7 +142,7 @@ const runCatalogSync = async (db: Db, client: CodeforcesClient): Promise<void> =
 
 export const syncCatalog = async (
   db: Db,
-  client = new CodeforcesClient(),
+  client: CodeforcesClient = getCodeforcesClient(),
 ): Promise<void> => {
   if (syncState.catalogSyncPromise) {
     return syncState.catalogSyncPromise;
@@ -147,5 +153,88 @@ export const syncCatalog = async (
     await syncState.catalogSyncPromise;
   } finally {
     syncState.catalogSyncPromise = null;
+  }
+};
+
+const runProblemMetadataRefresh = async (db: Db, client: CodeforcesClient): Promise<void> => {
+  const needing = listProblemsNeedingMetadata(db);
+  if (needing.length === 0) return;
+
+  syncState.catalogRunning = true;
+  syncState.lastCatalogStartedAt = now();
+  syncState.lastCatalogError = undefined;
+
+  const syncRunId = startSyncRun(db, "codeforces:catalog-metadata", syncState.lastCatalogStartedAt);
+
+  try {
+    const problemset = await client.problemset();
+    const problemsByKey = new Map(
+      problemset.problems
+        .filter((problem): problem is CfProblem & { contestId: number } => typeof problem.contestId === "number")
+        .map((problem) => [problemKey(problem.contestId, problem.index), problem]),
+    );
+    const statsByKey = new Map(
+      problemset.problemStatistics.map((stat) => [
+        problemKey(stat.contestId, stat.index),
+        stat.solvedCount,
+      ]),
+    );
+    const fetchedAt = now();
+    let updatedCount = 0;
+
+    transaction(db, () => {
+      for (const { contestId, problemIndex } of needing) {
+        const problem = problemsByKey.get(problemKey(contestId, problemIndex));
+        if (!problem || !hasProblemMetadata(problem)) continue;
+
+        upsertProblemWithTags(db, {
+          contestId,
+          problemIndex,
+          name: problem.name,
+          type: problem.type ?? null,
+          points: problem.points ?? null,
+          rating: problem.rating ?? null,
+          tags: problem.tags,
+          url: codeforcesProblemUrl(contestId, problemIndex),
+          rawJson: JSON.stringify(problem),
+          updatedAt: fetchedAt,
+          problemsetName: problem.problemsetName ?? null,
+          solvedCount: statsByKey.get(problemKey(contestId, problemIndex)) ?? null,
+        }, "catalog");
+        updatedCount += 1;
+      }
+    });
+
+    syncState.lastCatalogFinishedAt = now();
+    finishSyncRun(
+      db,
+      syncRunId,
+      "success",
+      `Checked ${needing.length} problems needing metadata; updated ${updatedCount}.`,
+      syncState.lastCatalogFinishedAt,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    syncState.lastCatalogFinishedAt = now();
+    syncState.lastCatalogError = message;
+    finishSyncRun(db, syncRunId, "failed", message, syncState.lastCatalogFinishedAt);
+    throw error;
+  } finally {
+    syncState.catalogRunning = false;
+  }
+};
+
+export const refreshProblemMetadata = async (
+  db: Db,
+  client: CodeforcesClient = getCodeforcesClient(),
+): Promise<void> => {
+  if (syncState.catalogSyncPromise) return;
+  if (syncState.metadataRefreshPromise) return syncState.metadataRefreshPromise;
+
+  syncState.metadataRefreshPromise = runProblemMetadataRefresh(db, client);
+  try {
+    await syncState.metadataRefreshPromise;
+  } finally {
+    syncState.metadataRefreshPromise = null;
   }
 };

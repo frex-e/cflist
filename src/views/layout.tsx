@@ -60,7 +60,7 @@ export const layout = (options: {
             </a>
             {options.user ? (
               <form class="sign-out-form" method="post" action="/sign-out">
-                <span>{options.user.cfHandle}</span>
+                <a href="/settings/handle">{options.user.cfHandle}</a>
                 <button type="submit">Sign out</button>
               </form>
             ) : (

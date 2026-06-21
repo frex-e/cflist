@@ -82,6 +82,14 @@ const redirectWithAuthCookies = (authResponse: Response, location: string): Resp
   return new Response(null, { status: 303, headers });
 };
 
+const errorPage = (user: AuthUser | null): string => {
+  return layout({
+    title: "Error",
+    user: user ?? undefined,
+    body: `<section class="hero"><h1>Something went wrong</h1><p>Please try again. If the problem persists, check the server logs.</p><a class="button" href="/problems">Back to problems</a></section>`,
+  });
+};
+
 export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVariables }> => {
   const authConfig = {
     baseURL: appConfig.authBaseURL,
@@ -105,6 +113,15 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
     }),
   );
   app.use("/public/*", serveStatic({ root: appConfig.publicRoot }));
+
+  app.use("*", async (c, next) => {
+    const startedAt = Date.now();
+    await next();
+    const path = new URL(c.req.url).pathname;
+    if (path !== "/healthz") {
+      console.log(`${c.req.method} ${path} ${c.res.status} ${Date.now() - startedAt}ms`);
+    }
+  });
 
   app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
@@ -214,12 +231,13 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
   app.get("/", (c) => c.redirect(c.get("user") ? "/problems" : "/sign-in"));
 
   app.get("/healthz", (c) => {
-    return c.json({
-      ok: true,
-      catalogSyncRunning: syncState.catalogRunning,
-      userSyncRunning: syncState.userRunning.size,
-      contestQueueRunning: syncState.contestQueueRunning,
-    });
+    try {
+      db.prepare("SELECT 1 AS ok").get();
+      return c.json({ ok: true });
+    } catch (error) {
+      console.error("Health check failed:", error);
+      return c.json({ ok: false }, 503);
+    }
   });
 
   registerAuthRoutes(app, {
@@ -232,6 +250,7 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
     authErrorRedirect,
     redirectWithAuthCookies,
     maybeStartInitialSync,
+    runSyncInBackground,
   });
 
   registerProblemsRoutes(app, {
@@ -254,6 +273,11 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
   });
 
   app.notFound((c) => c.html(notFoundPage(c.get("user")), 404));
+
+  app.onError((error, c) => {
+    console.error("Unhandled error:", error);
+    return c.html(errorPage(c.get("user")), 500);
+  });
 
   return app;
 };

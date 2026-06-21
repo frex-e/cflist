@@ -40,3 +40,23 @@ export const finishSyncRun = (
   `,
   ).run({ id, status, finishedAt, message });
 };
+
+const STUCK_USER_SYNC_MINUTES = 15;
+
+export const resetStaleUserSyncRuns = (db: Db): number => {
+  const timestamp = new Date().toISOString();
+  const staleBefore = new Date(Date.now() - STUCK_USER_SYNC_MINUTES * 60 * 1000).toISOString();
+  const result = db.prepare(
+    `
+    UPDATE sync_runs
+    SET status = 'failed',
+      finished_at = @timestamp,
+      message = 'Reset stale running user sync after process restart or timeout'
+    WHERE source = 'codeforces:user'
+      AND status = 'running'
+      AND finished_at IS NULL
+      AND started_at <= @staleBefore
+  `,
+  ).run({ timestamp, staleBefore });
+  return Number(result.changes);
+};
