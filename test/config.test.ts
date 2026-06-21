@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEV_AUTH_SECRET, validateProductionConfig } from "../src/config.js";
+import {
+  DEV_AUTH_SECRET,
+  resolveAuthGitHubOnly,
+  validateProductionConfig,
+} from "../src/config.js";
 
 test("validateProductionConfig rejects missing secret in production", () => {
   const originalEnv = { ...process.env };
@@ -36,6 +40,31 @@ test("validateProductionConfig rejects localhost base URL in production", () => 
   } finally {
     process.env = originalEnv;
   }
+});
+
+test("resolveAuthGitHubOnly defaults to true in production", () => {
+  assert.equal(
+    resolveAuthGitHubOnly({ NODE_ENV: "production" }),
+    true,
+  );
+  assert.equal(
+    resolveAuthGitHubOnly({ NODE_ENV: "development" }),
+    false,
+  );
+  assert.equal(
+    resolveAuthGitHubOnly({
+      NODE_ENV: "production",
+      AUTH_GITHUB_ONLY: "false",
+    }),
+    false,
+  );
+  assert.equal(
+    resolveAuthGitHubOnly({
+      NODE_ENV: "development",
+      AUTH_GITHUB_ONLY: "true",
+    }),
+    true,
+  );
 });
 
 test("validateProductionConfig passes with valid production env", () => {

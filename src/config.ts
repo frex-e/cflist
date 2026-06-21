@@ -7,10 +7,13 @@ const intFromEnv = (name: string, fallback: number): number => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const boolFromEnv = (name: string, fallback = false): boolean => {
-  const value = process.env[name]?.trim().toLowerCase();
-  if (!value) return fallback;
-  return value === "1" || value === "true" || value === "yes";
+export const resolveAuthGitHubOnly = (
+  env: NodeJS.ProcessEnv = process.env,
+): boolean => {
+  const value = env.AUTH_GITHUB_ONLY?.trim().toLowerCase();
+  if (value === "1" || value === "true" || value === "yes") return true;
+  if (value === "0" || value === "false" || value === "no") return false;
+  return env.NODE_ENV === "production";
 };
 
 export const DEV_AUTH_SECRET = "development-only-change-me-32-chars-min";
@@ -35,7 +38,7 @@ export const config = {
     .filter(Boolean),
   githubClientId: process.env.GITHUB_CLIENT_ID,
   githubClientSecret: process.env.GITHUB_CLIENT_SECRET,
-  authGitHubOnly: boolFromEnv("AUTH_GITHUB_ONLY"),
+  authGitHubOnly: resolveAuthGitHubOnly(),
 };
 
 export const validateProductionConfig = (): void => {
