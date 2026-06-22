@@ -565,6 +565,108 @@ test("contest queue finishes noop hydration jobs instead of requeuing forever", 
   }
 });
 
+test("user sync re-enqueues recent contests with done job but no problem pills", async () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+  insertUser(db);
+  db.prepare(
+    `
+    INSERT INTO contests (id, name, start_time_seconds, duration_seconds, raw_json, updated_at)
+    VALUES (100, 'Codeforces Round 100 (Div. 2)', 1000, 7200, '{}', '2026-01-01T00:00:00.000Z')
+  `,
+  ).run();
+  db.prepare(
+    `
+    INSERT INTO sync_runs (started_at, finished_at, status, source, message)
+    VALUES (@finishedAt, @finishedAt, 'success', 'codeforces:catalog', 'fresh')
+  `,
+  ).run({ finishedAt: recentCatalogSyncAt });
+  db.prepare(
+    `
+    INSERT INTO user_contest_results (
+      user_id,
+      cf_handle,
+      contest_id,
+      rank,
+      points,
+      penalty,
+      participant_type,
+      old_rating,
+      new_rating,
+      rating_delta,
+      performance,
+      last_checked_at
+    ) VALUES (
+      @userId,
+      @cfHandle,
+      100,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      '2026-01-01T00:00:00.000Z'
+    )
+  `,
+  ).run({ userId, cfHandle });
+  db.prepare(
+    `
+    INSERT INTO contest_sync_jobs (
+      user_id,
+      cf_handle,
+      contest_id,
+      priority,
+      status,
+      attempts,
+      available_at,
+      created_at,
+      updated_at
+    ) VALUES (
+      @userId,
+      @cfHandle,
+      100,
+      0,
+      'done',
+      1,
+      '2026-01-01T00:00:00.000Z',
+      '2026-01-01T00:00:00.000Z',
+      '2026-01-01T00:00:00.000Z'
+    )
+  `,
+  ).run({ userId, cfHandle });
+  syncState.catalogRunning = false;
+  syncState.userRunning.clear();
+  syncState.contestQueueRunning = false;
+
+  try {
+    const client = new UpsolveOnlyClient();
+    await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
+
+    const job = db
+      .prepare("SELECT status FROM contest_sync_jobs WHERE contest_id = 100")
+      .get() as { status: string };
+    assert.equal(job.status, "done");
+
+    const problemRows = db
+      .prepare("SELECT COUNT(*) AS count FROM user_contest_problem_results")
+      .get() as { count: number };
+    const upsolved = db
+      .prepare("SELECT upsolved FROM user_contest_problem_results WHERE problem_index = 'B'")
+      .get() as { upsolved: number };
+
+    assert.equal(problemRows.count, 2);
+    assert.equal(upsolved.upsolved, 1);
+  } finally {
+    db.close();
+    syncState.userRunning.clear();
+    syncState.contestQueueRunning = false;
+  }
+});
+
 test("user sync keeps completed contest jobs done unless hydration is incomplete", async () => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
@@ -766,8 +868,7 @@ test("user sync imports standings-only contest problems before writing contest r
   try {
     const client = new FakeClient();
     await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
-    assert.equal(client.standingsCalls, 0);
-    await runContestSyncQueue(db, client as unknown as CodeforcesClient);
+    assert.equal(client.standingsCalls, 1);
     await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
 
     const contestRows = db.prepare("SELECT COUNT(*) AS count FROM user_contest_results").get() as { count: number };
@@ -854,10 +955,16 @@ test("user sync enqueues all older unsynced contests on refresh", async () => {
     await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
 
     let contestRows = db.prepare("SELECT COUNT(*) AS count FROM user_contest_results").get() as { count: number };
+    let doneRows = db.prepare("SELECT COUNT(*) AS count FROM contest_sync_jobs WHERE status = 'done'").get() as { count: number };
     let queuedRows = db.prepare("SELECT COUNT(*) AS count FROM contest_sync_jobs WHERE status = 'queued'").get() as { count: number };
     assert.equal(contestRows.count, 35);
-    assert.equal(queuedRows.count, 35);
-    assert.deepEqual(client.standingsCalls, []);
+    assert.equal(doneRows.count, 30);
+    assert.equal(queuedRows.count, 5);
+    assert.deepEqual(client.standingsCalls.slice().sort((a, b) => b - a), [
+      35, 34, 33, 32, 31, 30, 29, 28, 27, 26,
+      25, 24, 23, 22, 21, 20, 19, 18, 17, 16,
+      15, 14, 13, 12, 11, 10, 9, 8, 7, 6,
+    ]);
 
     const priorityRows = db
       .prepare("SELECT contest_id, priority FROM contest_sync_jobs ORDER BY priority ASC")

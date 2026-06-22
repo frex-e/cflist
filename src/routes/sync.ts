@@ -5,7 +5,7 @@ import { requeueFailedContestJobsForUser, syncState } from "../cf/sync.js";
 import { firstString } from "../http/forms.js";
 import { safeReturnTo } from "../http/return-to.js";
 import { buildSyncPanelOptions } from "../http/sync-panel.js";
-import { syncPanelHtml } from "../views/sync-panel.js";
+import { syncPanelHtml, syncPanelResponseHeaders } from "../views/sync-panel.js";
 
 type AppVariables = {
   user: AuthUser | null;
@@ -39,7 +39,8 @@ export const registerSyncRoutes = (
     const returnTo = safeReturnTo(c.req.query("returnTo")) ?? "/problems";
     const refreshPage = refreshPageFrom(c.req.query("refreshPage"));
     if (!isHtmx(c)) return c.redirect(returnTo);
-    return c.html(syncPanelHtml(buildSyncPanelOptions(db, user, returnTo, refreshPage)));
+    const options = buildSyncPanelOptions(db, user, returnTo, refreshPage);
+    return c.html(syncPanelHtml(options), 200, syncPanelResponseHeaders(options));
   });
 
   app.post("/admin/sync", async (c) => {
@@ -56,6 +57,7 @@ export const registerSyncRoutes = (
 
     const notice = alreadyRunning || !started ? "already-running" : undefined;
 
-    return c.html(syncPanelHtml(buildSyncPanelOptions(db, user, returnTo, refreshPage, notice)));
+    const options = buildSyncPanelOptions(db, user, returnTo, refreshPage, notice);
+    return c.html(syncPanelHtml(options), 200, syncPanelResponseHeaders(options));
   });
 };

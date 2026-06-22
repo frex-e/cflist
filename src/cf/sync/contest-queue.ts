@@ -240,6 +240,22 @@ export const runContestSyncQueue = async (
   return processed;
 };
 
+export const drainContestSyncJobs = async (
+  db: Db,
+  client: CodeforcesClient,
+  maxJobs: number,
+): Promise<number> => {
+  let total = 0;
+  let remaining = maxJobs;
+  while (remaining > 0) {
+    const processed = await runContestSyncQueue(db, client, { maxJobs: remaining });
+    if (processed === 0) break;
+    total += processed;
+    remaining -= processed;
+  }
+  return total;
+};
+
 export const kickContestSyncQueue = (db: Db, client: CodeforcesClient = getCodeforcesClient()): void => {
   void runContestSyncQueue(db, client, { maxJobs: MAX_CONTEST_JOBS_PER_KICK }).catch((error) => {
     console.error("Contest sync queue failed:", error);

@@ -1,13 +1,13 @@
 import { transaction, type Db } from "../../db/connection.js";
 import { finishSyncRun, startSyncRun } from "../../db/writes/sync-runs.js";
 import { shouldRefreshProblemMetadata, shouldSyncCatalog } from "../../db/queries/catalog-sync.js";
-import { acceptedProblemsFromSubmissions } from "../accepted-problems.js";
+import { acceptedProblemsFromSubmissions, type AcceptedProblem } from "../accepted-problems.js";
 import { CodeforcesClient } from "../client.js";
 import { getCodeforcesClient } from "../shared-client.js";
-import type { CfRatingChange } from "../types.js";
+import type { CfRatingChange, CfContest } from "../types.js";
 import { getCachedStandings, backfillUserContestPerformances } from "./cache.js";
 import { refreshProblemMetadata, syncCatalog } from "./catalog.js";
-import { enqueueContestHydrationJobs } from "./contest-queue.js";
+import { drainContestSyncJobs, enqueueContestHydrationJobs } from "./contest-queue.js";
 import { recomputeExistingUpsolvesForUser } from "./contest-hydration.js";
 import { contestSortValue, ensureContestsExist, loadContestsById, missingContestIds, now } from "./helpers.js";
 import { syncState } from "./state.js";
@@ -84,6 +84,37 @@ const writeBasicContestResults = (
       });
     }
   });
+};
+
+export const contestNeedsHydration = (
+  db: Db,
+  contestId: number,
+  problemCount: number,
+): boolean => {
+  if (problemCount === 0) return true;
+  const cachedStandings = getCachedStandings(db, contestId);
+  return cachedStandings !== undefined && problemCount < cachedStandings.problems.length;
+};
+
+const contestIdsWithProblemPills = (db: Db, userId: string): number[] => {
+  const rows = db.prepare(`
+    SELECT DISTINCT contest_id
+    FROM user_contest_problem_results
+    WHERE user_id = @userId
+  `).all({ userId }) as { contest_id: number }[];
+
+  return rows.map((row) => row.contest_id);
+};
+
+const recomputeAllExistingUpsolves = (
+  db: Db,
+  userId: string,
+  contestsById: Map<number, CfContest>,
+  accepted: Map<string, AcceptedProblem>,
+): void => {
+  for (const contestId of contestIdsWithProblemPills(db, userId)) {
+    recomputeExistingUpsolvesForUser(db, userId, contestId, contestsById.get(contestId), accepted);
+  }
 };
 
 const completedContestProblemCounts = (db: Db, userId: string): Map<number, number> => {
@@ -197,25 +228,9 @@ export const syncUserStatus = async (
     writeBasicContestResults(db, userId, cfHandle, sortedCandidateContestIds, ratingsByContestId, checkedAt);
     backfillUserContestPerformances(db, userId);
 
-    for (const contestId of completedContestIds) {
-      recomputeExistingUpsolvesForUser(db, userId, contestId, contestsById.get(contestId), accepted);
-    }
-
-    const contestJobStatus = db.prepare(`
-      SELECT status
-      FROM contest_sync_jobs
-      WHERE user_id = @userId AND contest_id = @contestId
-    `);
-    const hydrateRecentContestIds = recentContestIds.filter((contestId) => {
-      const count = problemCountsByContestId.get(contestId) ?? 0;
-      if (count > 0) {
-        const cachedStandings = getCachedStandings(db, contestId);
-        return cachedStandings !== undefined && count < cachedStandings.problems.length;
-      }
-
-      const job = contestJobStatus.get({ userId, contestId }) as { status: string } | undefined;
-      return job?.status !== "done";
-    });
+    const hydrateRecentContestIds = recentContestIds.filter((contestId) =>
+      contestNeedsHydration(db, contestId, problemCountsByContestId.get(contestId) ?? 0),
+    );
     const toHydrationJob = (contestId: number) => ({
       contestId,
       priority: rankByContestId.get(contestId)!,
@@ -233,6 +248,12 @@ export const syncUserStatus = async (
       backfillContestIds.map(toHydrationJob),
     );
     const enqueuedContestResults = enqueuedRecent + enqueuedBackfill;
+
+    if (enqueuedRecent > 0) {
+      await drainContestSyncJobs(db, client, enqueuedRecent);
+    }
+
+    recomputeAllExistingUpsolves(db, userId, contestsById, accepted);
 
     finishSyncRun(
       db,

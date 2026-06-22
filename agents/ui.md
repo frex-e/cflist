@@ -39,6 +39,6 @@ Server-rendered Hono TSX views under `src/views/`. `filters.js` loads only on `/
 - Shared `SyncPanel` on Problems and Contests; `POST /admin/sync` starts background sync and returns panel HTML.
 - Panel polls `GET /admin/sync/panel` every 3s while user sync or contest hydration is active.
 - On Problems, successful sync completion refreshes `#problem-list` and summary via `sync.js`.
-- On Contests, hydration polling refreshes `#contests-table` from `GET /contests/fragment`.
+- On Contests, sync completion and hydration polling refresh `#contests-table` from `GET /contests/fragment`. The sync panel sets `HX-Trigger: refreshContestsTable` on successful HTMX panel responses; `sync.js` handles that event plus panel state changes.
 - First visit with no prior user sync shows a banner on Problems and auto-starts sync on first full page load of Problems or Contests.
 - Contest rows show `Loading…` / `Could not load` (with error tooltip) while hydration jobs run or fail.

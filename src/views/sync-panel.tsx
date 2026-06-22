@@ -80,6 +80,7 @@ const panelUrl = (options: Pick<SyncPanelOptions, "returnTo" | "refreshPage">): 
 export const SyncPanel = (options: SyncPanelOptions) => {
   const { latestSync, syncRunning, contestJobs, returnTo, refreshPage, autoSyncStarted } = options;
   const shouldPoll = syncRunning || hasPendingContestSyncJobs(contestJobs) || syncState.catalogRunning;
+  const contestJobsPending = contestJobs.queued + contestJobs.running + contestJobs.failedRetryable;
   const hydrationLine = hydrationSummary(contestJobs);
   const status = statusHeading(options);
   const showMessage = latestSync?.message && (latestSync.status === "failed" || latestSync.status === "success");
@@ -93,6 +94,8 @@ export const SyncPanel = (options: SyncPanelOptions) => {
       data-sync-status={latestSync?.status ?? "none"}
       data-refresh-page={refreshPage}
       data-auto-sync-started={autoSyncStarted ? "true" : "false"}
+      data-contest-jobs-done={contestJobs.done}
+      data-contest-jobs-pending={contestJobsPending}
       hx-get={shouldPoll ? panelUrl({ returnTo, refreshPage }) : undefined}
       hx-trigger={shouldPoll ? "every 3s" : undefined}
       hx-target="this"
@@ -121,3 +124,12 @@ export const SyncPanel = (options: SyncPanelOptions) => {
 };
 
 export const syncPanelHtml = (options: SyncPanelOptions): string => render(<SyncPanel {...options} />);
+
+export const syncPanelResponseHeaders = (
+  options: Pick<SyncPanelOptions, "refreshPage" | "syncRunning" | "latestSync">,
+): Record<string, string> => {
+  if (options.refreshPage !== "contests") return {};
+  if (options.syncRunning) return {};
+  if (options.latestSync?.status !== "success") return {};
+  return { "HX-Trigger": JSON.stringify({ refreshContestsTable: true }) };
+};

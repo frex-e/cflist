@@ -8,7 +8,7 @@ import {
   isStuckUserSyncRun,
 } from "../src/db/queries/sync-jobs.js";
 import { buildSyncPanelOptions } from "../src/http/sync-panel.js";
-import { syncPanelHtml } from "../src/views/sync-panel.js";
+import { syncPanelHtml, syncPanelResponseHeaders } from "../src/views/sync-panel.js";
 import { createTestDb, signUp, withTestApp } from "./helpers.js";
 
 test("getContestSyncJobCounts groups contest job statuses", () => {
@@ -228,6 +228,94 @@ test("sync panel markup exposes autoSyncStarted flag", () => {
     );
 
     assert.match(html, /data-auto-sync-started="true"/);
+  } finally {
+    db.close();
+  }
+});
+
+test("sync panel markup exposes contest job progress attributes", () => {
+  const db = createTestDb();
+  try {
+    db.prepare(
+      `
+      INSERT INTO "user" (
+        id, name, email, emailVerified, createdAt, updatedAt, cfHandle
+      ) VALUES (
+        'user-1', 'Test User', 'user@example.com', 0,
+        '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'tourist'
+      )
+    `,
+    ).run();
+
+    for (const contestId of [1, 2, 3]) {
+      db.prepare(
+        `
+        INSERT INTO contests (id, name, raw_json, updated_at)
+        VALUES (@contestId, @name, '{}', '2026-01-01T00:00:00.000Z')
+      `,
+      ).run({ contestId, name: `Contest ${contestId}` });
+    }
+
+    db.prepare(
+      `
+      INSERT INTO contest_sync_jobs (
+        user_id, cf_handle, contest_id, status, priority, attempts, available_at, created_at, updated_at
+      ) VALUES
+        ('user-1', 'tourist', 1, 'queued', 0, 0, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
+        ('user-1', 'tourist', 2, 'running', 1, 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
+        ('user-1', 'tourist', 3, 'done', 2, 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')
+    `,
+    ).run();
+
+    const html = syncPanelHtml(
+      buildSyncPanelOptions(
+        db,
+        { id: "user-1", name: "Test User", email: "user@example.com", cfHandle: "tourist" },
+        "/contests",
+        "contests",
+      ),
+    );
+
+    assert.match(html, /data-contest-jobs-done="1"/);
+    assert.match(html, /data-contest-jobs-pending="2"/);
+  } finally {
+    db.close();
+  }
+});
+
+test("sync panel response headers trigger contests table refresh after successful sync", () => {
+  const db = createTestDb();
+  try {
+    db.prepare(
+      `
+      INSERT INTO "user" (
+        id, name, email, emailVerified, createdAt, updatedAt, cfHandle
+      ) VALUES (
+        'user-1', 'Test User', 'user@example.com', 0,
+        '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'tourist'
+      )
+    `,
+    ).run();
+    db.prepare(
+      `
+      INSERT INTO sync_runs (started_at, finished_at, status, source, user_id, cf_handle, message)
+      VALUES (
+        '2026-01-01T00:00:00.000Z',
+        '2026-01-01T00:00:01.000Z',
+        'success',
+        'codeforces:user',
+        'user-1',
+        'tourist',
+        'done'
+      )
+    `,
+    ).run();
+
+    const headers = syncPanelResponseHeaders(
+      buildSyncPanelOptions(db, { id: "user-1", name: "Test User", email: "user@example.com", cfHandle: "tourist" }, "/contests", "contests"),
+    );
+
+    assert.deepEqual(headers, { "HX-Trigger": JSON.stringify({ refreshContestsTable: true }) });
   } finally {
     db.close();
   }
