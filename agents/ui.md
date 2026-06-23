@@ -42,3 +42,11 @@ Server-rendered Hono TSX views under `src/views/`. `filters.js` loads only on `/
 - On Contests, sync completion and hydration polling refresh `#contests-table` from `GET /contests/fragment`. The sync panel sets `HX-Trigger: refreshContestsTable` on successful HTMX panel responses; `sync.js` handles that event plus panel state changes.
 - First visit with no prior user sync shows a banner on Problems and auto-starts sync on first full page load of Problems or Contests.
 - Contest rows show `Loading…` / `Could not load` (with error tooltip) while hydration jobs run or fail.
+
+## Settings
+
+- `/settings` (signed in, handle required) shows account info, reset CF data, and delete account.
+- Topbar handle link goes to `/settings`; handle changes remain at `/settings/handle`.
+- Reset/delete require typing the current Codeforces handle to confirm.
+- Reset clears per-user CF sync tables and audit rows, keeps saved filter defaults, and starts a fresh sync.
+- Delete account cascades all user data, signs out, and redirects to sign-in.

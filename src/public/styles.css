@@ -311,6 +311,87 @@ p {
   color: var(--danger);
 }
 
+.form-success {
+  margin: 0 0 12px;
+  color: var(--ok);
+}
+
+.settings-page {
+  width: min(640px, 100%);
+  margin-inline: auto;
+}
+
+.settings-banner {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.settings-sections {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-section {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.settings-section p {
+  margin-top: 0;
+}
+
+.settings-section.settings-danger {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+}
+
+.settings-dl {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.settings-dl div {
+  display: grid;
+  gap: 2px;
+}
+
+.settings-dl dt {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.settings-dl dd {
+  margin: 0;
+  font-size: 15px;
+}
+
+.settings-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.button.danger {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  color: var(--danger);
+}
+
+.button.danger:hover {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, var(--surface));
+  color: var(--danger);
+}
+
 .sync-panel {
   display: flex;
   align-items: center;

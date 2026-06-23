@@ -7,6 +7,7 @@ import { firstString, formToBody } from "../http/forms.js";
 import { signInPage, signUpPage } from "../views/auth.js";
 import { completeProfilePage, handleSettingsPage } from "../views/complete-profile.js";
 import type { Db } from "../db/connection.js";
+import { clearUserCfData } from "../db/writes/user-data.js";
 
 const formatSignInError = (error?: string): string | undefined => {
   if (!error) return undefined;
@@ -218,6 +219,7 @@ export const registerAuthRoutes = (
     saveCfHandle(deps.db, user.id, handleResult);
 
     if (handleChanged) {
+      clearUserCfData(deps.db, user.id);
       deps.runSyncInBackground({ ...user, cfHandle: handleResult });
     }
 

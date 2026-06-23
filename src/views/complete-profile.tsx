@@ -42,6 +42,13 @@ export const handleSettingsPage = (options: HandleSettingsPageOptions): string =
           </label>
           <button type="submit">Save handle</button>
         </form>
+        {options.title === "Change Handle" ? (
+          <p>
+            <a href="/settings">Back to settings</a>
+          </p>
+        ) : (
+          ""
+        )}
       </section>,
     ),
   });

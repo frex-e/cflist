@@ -9,6 +9,7 @@ import { layout, configureLayoutAuth } from "./views/layout.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerContestsRoutes } from "./routes/contests.js";
 import { registerProblemsRoutes } from "./routes/problems.js";
+import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerSyncRoutes } from "./routes/sync.js";
 
 export type AppConfig = {
@@ -264,6 +265,13 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
     db,
     requireUser: requireCompleteUser,
     maybeStartInitialSync,
+  });
+
+  registerSettingsRoutes(app, {
+    db,
+    proxyAuthSignOut,
+    redirectWithAuthCookies,
+    runSyncInBackground,
   });
 
   registerSyncRoutes(app, {
