@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { refreshRoundPairs } from "../src/cf/sync/canonical-problems.js";
 import { listProblems, listUserContestResults, type ProblemFilters } from "../src/db/queries.js";
 import { migrate } from "../src/db/migrate.js";
 
 const userId = "user-1";
+const gridCanonicalId = "11111111-1111-1111-1111-111111111111";
 
 const filters = (overrides: Partial<ProblemFilters> = {}): ProblemFilters => ({
   tags: [],
@@ -27,6 +29,7 @@ const insertProblem = (
   problemIndex: string,
   name: string,
   rating: number,
+  canonicalId: string,
 ): void => {
   const tags = JSON.stringify(["graphs"]);
   db.prepare(
@@ -40,7 +43,8 @@ const insertProblem = (
       tags_json,
       url,
       raw_json,
-      updated_at
+      updated_at,
+      canonical_id
     ) VALUES (
       @contestId,
       @problemIndex,
@@ -50,7 +54,8 @@ const insertProblem = (
       @tags,
       @url,
       '{}',
-      '2026-01-01T00:00:00.000Z'
+      '2026-01-01T00:00:00.000Z',
+      @canonicalId
     )
   `,
   ).run({
@@ -60,6 +65,7 @@ const insertProblem = (
     rating,
     tags,
     url: `https://codeforces.com/contest/${contestId}/problem/${problemIndex}`,
+    canonicalId,
   });
 
   db.prepare(
@@ -95,13 +101,14 @@ const withDb = (fn: (db: DatabaseSync) => void): void => {
       updated_at
     ) VALUES
       (2219, 'Codeforces Round (Div. 1)', 1760000000, 'Codeforces Round', 'Div. 1', 'Codeforces Round (Div. 1)', '{}', '2026-01-01T00:00:00.000Z'),
-      (2220, 'Codeforces Round (Div. 2)', 1760003600, 'Codeforces Round', 'Div. 2', 'Codeforces Round (Div. 2)', '{}', '2026-01-01T00:00:00.000Z')
+      (2220, 'Codeforces Round (Div. 2)', 1760000000, 'Codeforces Round', 'Div. 2', 'Codeforces Round (Div. 2)', '{}', '2026-01-01T00:00:00.000Z')
   `,
   ).run();
 
-  insertProblem(db, 2219, "A", "Grid L", 1400);
-  insertProblem(db, 2220, "C", "Grid L", 1400);
-  insertProblem(db, 2220, "D", "Different Problem", 1600);
+  refreshRoundPairs(db);
+  insertProblem(db, 2219, "A", "Grid L", 1400, gridCanonicalId);
+  insertProblem(db, 2220, "C", "Grid L", 1400, gridCanonicalId);
+  insertProblem(db, 2220, "D", "Different Problem", 1600, "22222222-2222-2222-2222-222222222222");
 
   try {
     fn(db);
@@ -116,13 +123,12 @@ test("problem list collapses shared contest aliases into one displayed row", () 
       `
       INSERT INTO user_problem_status (
         user_id,
-        cf_handle,
         contest_id,
         problem_index,
         solved,
         accepted_count,
         last_checked_at
-      ) VALUES (@userId, 'tourist', 2219, 'A', 1, 1, '2026-01-01T00:00:00.000Z')
+      ) VALUES (@userId, 2219, 'A', 1, 1, '2026-01-01T00:00:00.000Z')
     `,
     ).run({ userId });
 
@@ -168,11 +174,10 @@ test("contest result listing keeps contest-specific problem placements", () => {
         `
         INSERT INTO user_contest_results (
           user_id,
-          cf_handle,
           contest_id,
           points,
           last_checked_at
-        ) VALUES (@userId, 'tourist', @contestId, 1, '2026-01-01T00:00:00.000Z')
+        ) VALUES (@userId, @contestId, 1, '2026-01-01T00:00:00.000Z')
       `,
       ).run({ userId, contestId });
     }

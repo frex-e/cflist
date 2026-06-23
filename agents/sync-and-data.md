@@ -14,12 +14,30 @@ Codeforces accepted submission status OR local solved override
 - A local override can be cleared, which falls back to Codeforces status.
 - Manual overrides are additive; they do not represent local "unsolved" state.
 - API-solved rows are non-clickable in the list.
+- Overrides are keyed by `(user_id, canonical_id)` — one toggle applies to all contest placements of the same task.
+
+## Canonical problem identity
+
+Problems list dedup uses `problems.canonical_id`, not rating/tags metadata.
+
+- **Catalog sync** (`problemset.problems`): each row gets a fresh UUID `canonical_id`.
+- **Standings import**: look up the paired round contest; if a row with the same `name` exists there, reuse its `canonical_id`; otherwise assign a new UUID.
+- **Round pairs**: Div. 1 + Div. 2 contests with the same `start_time_seconds` (`contest_round_pairs`, refreshed on catalog sync). Same `name` within a pair → shared `canonical_id` (linked after catalog upsert via `linkCanonicalIdsByRoundPairs`).
+- Solo rounds (Global, Educational, unpaired Div. 2) keep one id per problem row.
+- If the partner contest is not hydrated yet, standings rows may get a new id until a later sync links them by name.
+- Contest history, CF URLs, `user_problem_status`, and `problem_tags` stay `(contest_id, problem_index)` scoped.
+
+## Tags
+
+- **Filtering** uses normalized `problem_tags` rows (`EXISTS` / `IN` queries).
+- `problems.tags_json` is a denormalized display cache from the API on upsert; not used for list dedup.
+- Metadata refresh targets rows with `rating IS NULL` or no `problem_tags` rows (not `tags_json = '[]'`).
 
 ## Tables
 
-- Shared catalog: `contests`, `problems`, `problem_tags`.
+- Shared catalog: `contests`, `problems`, `problem_tags`, `contest_round_pairs`.
 - Per-user (`user_id`): `user_problem_status`, `user_problem_overrides`, `user_contest_results`, `user_contest_problem_results`, `user_default_filters`.
-- Sync caches: `contest_rating_changes_cache`, `contest_standings_cache`, `contest_performance_cache`.
+- Sync caches: `contest_rating_changes_cache`, `contest_standings_cache`, `contest_performance_cache` (keyed by `contest_id`, `user_id`).
 - `contest_sync_jobs`: SQLite-backed low-priority queue drained in small batches by the web process (one user/contest row at a time).
 
 ## Sync pipeline
@@ -36,6 +54,13 @@ User sync refreshes catalog when the problem table is empty or the last successf
 
 - **Contest standings/rating changes:** `contest_standings_cache` and `contest_rating_changes_cache` are write-once with no TTL. If Codeforces corrects standings or rating changes after initial hydration, local rank/performance data stays stale until cache rows are manually deleted or a re-fetch strategy is added.
 
+## Referential integrity
+
+- `problems.contest_id` → `contests(id)`; `user_problem_status` → `problems(contest_id, problem_index)`.
+- `sync_runs.user_id` → `"user"(id)` with `ON DELETE SET NULL`.
+- Orphan rows are cleaned before FK migrations (`src/db/migrate-audit.ts`).
+- `cf_handle` is not stored on `user_problem_status` / `user_contest_results`; join `"user".cfHandle` when needed. Kept on `sync_runs` / `contest_sync_jobs` for observability.
+
 ## Migrations
 
-Pre-auth databases can be deleted instead of migrated. Schema changes use versioned steps in `src/db/migrate.ts` (`schema_migrations` table).
+Pre-auth databases can be deleted instead of migrated. Schema changes use versioned steps in `src/db/migrate.ts` (`schema_migrations` table). v6 adds `canonical_id` and re-keys overrides; v7 adds FKs, CHECK constraints, indexes, and performance-cache user key; v8 re-pairs Div. 1/Div. 2 rounds by start time and links canonical ids.

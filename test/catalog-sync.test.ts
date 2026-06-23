@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import test from "node:test";
 import type { CodeforcesClient } from "../src/cf/client.js";
 import { refreshProblemMetadata } from "../src/cf/sync/catalog.js";
@@ -26,11 +27,21 @@ const insertProblem = (
 ): void => {
   db.prepare(
     `
+    INSERT OR IGNORE INTO contests (id, name, raw_json, updated_at)
+    VALUES (@contestId, @contestName, '{}', '2026-01-01T00:00:00.000Z')
+  `,
+  ).run({
+    contestId: input.contestId,
+    contestName: `Contest ${input.contestId}`,
+  });
+
+  db.prepare(
+    `
     INSERT INTO problems (
-      contest_id, problem_index, name, rating, tags_json, url, raw_json, updated_at
+      contest_id, problem_index, name, rating, tags_json, url, raw_json, updated_at, canonical_id
     ) VALUES (
       @contestId, @problemIndex, @name, @rating, @tagsJson,
-      @url, '{}', '2026-01-01T00:00:00.000Z'
+      @url, '{}', '2026-01-01T00:00:00.000Z', @canonicalId
     )
   `,
   ).run({
@@ -40,6 +51,7 @@ const insertProblem = (
     rating: input.rating ?? null,
     tagsJson: input.tagsJson ?? "[]",
     url: `https://codeforces.com/contest/${input.contestId}/problem/${input.problemIndex}`,
+    canonicalId: randomUUID(),
   });
 };
 
@@ -91,6 +103,9 @@ test("countProblemsNeedingMetadata counts unrated and untagged problems", () => 
     insertProblem(db, { contestId: 1, problemIndex: "A", rating: null, tagsJson: "[]" });
     insertProblem(db, { contestId: 1, problemIndex: "B", rating: 1500, tagsJson: "[]" });
     insertProblem(db, { contestId: 1, problemIndex: "C", rating: 1600, tagsJson: '["math"]' });
+    db.prepare(
+      `INSERT INTO problem_tags (contest_id, problem_index, tag) VALUES (1, 'C', 'math')`,
+    ).run();
 
     assert.equal(countProblemsNeedingMetadata(db), 2);
   } finally {
@@ -102,6 +117,9 @@ test("shouldRefreshProblemMetadata is false when no eligible problems exist", ()
   const db = createTestDb();
   try {
     insertProblem(db, { contestId: 1, problemIndex: "A", rating: 1500, tagsJson: '["math"]' });
+    db.prepare(
+      `INSERT INTO problem_tags (contest_id, problem_index, tag) VALUES (1, 'A', 'math')`,
+    ).run();
     seedSuccessfulCatalogSync(db);
 
     assert.equal(shouldRefreshProblemMetadata(db), false);

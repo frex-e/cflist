@@ -39,8 +39,13 @@ export const countProblemsNeedingMetadata = (db: Db): number => {
     .prepare(
       `
       SELECT COUNT(*) AS count
-      FROM problems
-      WHERE rating IS NULL OR tags_json = '[]'
+      FROM problems p
+      WHERE p.rating IS NULL
+        OR NOT EXISTS (
+          SELECT 1 FROM problem_tags pt
+          WHERE pt.contest_id = p.contest_id
+            AND pt.problem_index = p.problem_index
+        )
     `,
     )
     .get() as { count: number };
@@ -52,8 +57,13 @@ export const listProblemsNeedingMetadata = (db: Db): ProblemMetadataKey[] => {
     .prepare(
       `
       SELECT contest_id AS contestId, problem_index AS problemIndex
-      FROM problems
-      WHERE rating IS NULL OR tags_json = '[]'
+      FROM problems p
+      WHERE p.rating IS NULL
+        OR NOT EXISTS (
+          SELECT 1 FROM problem_tags pt
+          WHERE pt.contest_id = p.contest_id
+            AND pt.problem_index = p.problem_index
+        )
     `,
     )
     .all() as ProblemMetadataKey[];

@@ -18,8 +18,8 @@ Server-rendered Hono TSX views under `src/views/`. `filters.js` loads only on `/
 
 - Problem id/name links go to the contest-scoped Codeforces problem page; no local detail page.
 - Search (`q`) matches problem names, ids such as `1900A`, and raw contest names.
-- De-duplicates shared contest aliases by problem metadata after filters; aggregates solved state across the visible alias group. Contest history preserves contest-specific indices.
-- Solved toggles POST and re-render `#problem-list` plus summary via HTMX so rows disappear under filters like `solved=unsolved`. Filter context comes from the `HX-Current-URL` header.
+- De-duplicates shared Div. 1/Div. 2 aliases by `canonical_id` (round pairing + same problem name) after filters; aggregates CF solved state and manual overrides across the alias group. Contest history preserves contest-specific indices.
+- Solved toggles POST and re-render `#problem-list` plus summary via HTMX so rows disappear under filters like `solved=unsolved`. Override is stored per `canonical_id` (all placements share one toggle). Filter context comes from the `HX-Current-URL` header.
 - Filter changes fetch `/problems/fragment`, swap the table, and update the canonical URL.
 - `Set default` posts to `/preferences/default-filters` via `fetch` in `filters.js` for inline status.
 - HTMX infinite-scroll sentinel appends `/problems/fragment?append=1` pages at the bottom. `infinite-scroll.js` loads the next page when the user scrolls it into view (one page per scroll position, no auto-cascade).

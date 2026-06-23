@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import type { CodeforcesClient } from "../src/cf/client.js";
@@ -586,7 +587,6 @@ test("user sync re-enqueues recent contests with done job but no problem pills",
     `
     INSERT INTO user_contest_results (
       user_id,
-      cf_handle,
       contest_id,
       rank,
       points,
@@ -599,7 +599,6 @@ test("user sync re-enqueues recent contests with done job but no problem pills",
       last_checked_at
     ) VALUES (
       @userId,
-      @cfHandle,
       100,
       NULL,
       NULL,
@@ -612,7 +611,7 @@ test("user sync re-enqueues recent contests with done job but no problem pills",
       '2026-01-01T00:00:00.000Z'
     )
   `,
-  ).run({ userId, cfHandle });
+  ).run({ userId });
   db.prepare(
     `
     INSERT INTO contest_sync_jobs (
@@ -715,7 +714,8 @@ test("user sync forces catalog refresh when user data references missing contest
       tags_json,
       url,
       raw_json,
-      updated_at
+      updated_at,
+      canonical_id
     ) VALUES (
       100,
       'A',
@@ -725,10 +725,11 @@ test("user sync forces catalog refresh when user data references missing contest
       '[]',
       'https://codeforces.com/contest/100/problem/A',
       '{}',
-      '2026-01-01T00:00:00.000Z'
+      '2026-01-01T00:00:00.000Z',
+      @canonicalId
     )
   `,
-  ).run();
+  ).run({ canonicalId: randomUUID() });
   db.prepare(
     `
     INSERT INTO sync_runs (started_at, finished_at, status, source, message)
@@ -785,7 +786,8 @@ test("user sync falls back to contest stubs when catalog refresh still misses a 
       tags_json,
       url,
       raw_json,
-      updated_at
+      updated_at,
+      canonical_id
     ) VALUES (
       100,
       'A',
@@ -795,10 +797,11 @@ test("user sync falls back to contest stubs when catalog refresh still misses a 
       '[]',
       'https://codeforces.com/contest/100/problem/A',
       '{}',
-      '2026-01-01T00:00:00.000Z'
+      '2026-01-01T00:00:00.000Z',
+      @canonicalId
     )
   `,
-  ).run();
+  ).run({ canonicalId: randomUUID() });
   db.prepare(
     `
     INSERT INTO sync_runs (started_at, finished_at, status, source, message)

@@ -1,4 +1,5 @@
 import type { Db } from "../connection.js";
+import { resolveCanonicalIdForUpsert } from "../../cf/sync/canonical-problems.js";
 
 export type ProblemUpsertInput = {
   contestId: number;
@@ -40,7 +41,8 @@ const upsertCatalogProblem = (db: Db) =>
       tags_json,
       url,
       raw_json,
-      updated_at
+      updated_at,
+      canonical_id
     ) VALUES (
       @contestId,
       @problemsetName,
@@ -53,7 +55,8 @@ const upsertCatalogProblem = (db: Db) =>
       @tagsJson,
       @url,
       @rawJson,
-      @updatedAt
+      @updatedAt,
+      @canonicalId
     )
     ON CONFLICT(contest_id, problem_index) DO UPDATE SET
       problemset_name = excluded.problemset_name,
@@ -82,7 +85,8 @@ const upsertStandingsProblem = (db: Db) =>
       tags_json,
       url,
       raw_json,
-      updated_at
+      updated_at,
+      canonical_id
     ) VALUES (
       @contestId,
       NULL,
@@ -95,7 +99,8 @@ const upsertStandingsProblem = (db: Db) =>
       @tagsJson,
       @url,
       @rawJson,
-      @updatedAt
+      @updatedAt,
+      @canonicalId
     )
     ON CONFLICT(contest_id, problem_index) DO UPDATE SET
       name = excluded.name,
@@ -115,6 +120,13 @@ export const upsertProblemWithTags = (
 ): void => {
   const tags = [...new Set(input.tags)].sort((a, b) => a.localeCompare(b));
   const tagsJson = JSON.stringify(tags);
+  const canonicalId = resolveCanonicalIdForUpsert(
+    db,
+    input.contestId,
+    input.problemIndex,
+    input.name,
+    source,
+  );
   const params = {
     contestId: input.contestId,
     problemIndex: input.problemIndex,
@@ -126,6 +138,7 @@ export const upsertProblemWithTags = (
     url: input.url,
     rawJson: input.rawJson,
     updatedAt: input.updatedAt,
+    canonicalId,
   };
 
   if (source === "catalog") {

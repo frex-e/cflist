@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { createApp } from "../src/app.js";
@@ -35,13 +36,15 @@ const seedCatalog = (db: DatabaseSync): void => {
         tags_json,
         url,
         raw_json,
-        updated_at
-      ) VALUES (1100, @index, @name, '[]', @url, '{}', '2026-01-01T00:00:00.000Z')
+        updated_at,
+        canonical_id
+      ) VALUES (1100, @index, @name, '[]', @url, '{}', '2026-01-01T00:00:00.000Z', @canonicalId)
     `,
     ).run({
       index,
       name: `Problem ${index}`,
       url: `https://codeforces.com/contest/1100/problem/${index}`,
+      canonicalId: randomUUID(),
     });
   }
 };
@@ -104,7 +107,6 @@ test("contests page renders rating, performance, and problem outcome pills", asy
       `
       INSERT INTO user_contest_results (
         user_id,
-        cf_handle,
         contest_id,
         rank,
         points,
@@ -115,7 +117,7 @@ test("contests page renders rating, performance, and problem outcome pills", asy
         rating_delta,
         performance,
         last_checked_at
-      ) VALUES (@userId, 'inj', 1100, 42, 3, 180, 'CONTESTANT', 1900, 1950, 50, 2075, '2026-01-01T00:00:00.000Z')
+      ) VALUES (@userId, 1100, 42, 3, 180, 'CONTESTANT', 1900, 1950, 50, 2075, '2026-01-01T00:00:00.000Z')
     `,
     ).run({ userId: user.id });
 
@@ -123,7 +125,6 @@ test("contests page renders rating, performance, and problem outcome pills", asy
       `
       INSERT INTO user_contest_results (
         user_id,
-        cf_handle,
         contest_id,
         rank,
         points,
@@ -134,7 +135,7 @@ test("contests page renders rating, performance, and problem outcome pills", asy
         rating_delta,
         performance,
         last_checked_at
-      ) VALUES (@userId, 'inj', 1099, 80, 2, 240, 'CONTESTANT', 1850, 1900, 50, 1980, '2026-01-01T00:00:00.000Z')
+      ) VALUES (@userId, 1099, 80, 2, 240, 'CONTESTANT', 1850, 1900, 50, 1980, '2026-01-01T00:00:00.000Z')
     `,
     ).run({ userId: user.id });
 
@@ -192,7 +193,6 @@ test("contests page show filter keeps mutually exclusive table modes", async () 
       `
       INSERT INTO user_contest_results (
         user_id,
-        cf_handle,
         contest_id,
         rank,
         points,
@@ -203,7 +203,7 @@ test("contests page show filter keeps mutually exclusive table modes", async () 
         rating_delta,
         performance,
         last_checked_at
-      ) VALUES (@userId, 'inj', 1100, 42, 3, 180, 'CONTESTANT', 1900, 1950, 50, 2075, '2026-01-01T00:00:00.000Z')
+      ) VALUES (@userId, 1100, 42, 3, 180, 'CONTESTANT', 1900, 1950, 50, 2075, '2026-01-01T00:00:00.000Z')
     `,
     ).run({ userId: user.id });
 
@@ -211,7 +211,6 @@ test("contests page show filter keeps mutually exclusive table modes", async () 
       `
       INSERT INTO user_contest_results (
         user_id,
-        cf_handle,
         contest_id,
         rank,
         points,
@@ -222,7 +221,7 @@ test("contests page show filter keeps mutually exclusive table modes", async () 
         rating_delta,
         performance,
         last_checked_at
-      ) VALUES (@userId, 'inj', 1099, 80, 2, 240, 'CONTESTANT', NULL, NULL, NULL, NULL, '2026-01-01T00:00:00.000Z')
+      ) VALUES (@userId, 1099, 80, 2, 240, 'CONTESTANT', NULL, NULL, NULL, NULL, '2026-01-01T00:00:00.000Z')
     `,
     ).run({ userId: user.id });
 
@@ -230,7 +229,6 @@ test("contests page show filter keeps mutually exclusive table modes", async () 
       `
       INSERT INTO user_contest_results (
         user_id,
-        cf_handle,
         contest_id,
         rank,
         points,
@@ -241,7 +239,7 @@ test("contests page show filter keeps mutually exclusive table modes", async () 
         rating_delta,
         performance,
         last_checked_at
-      ) VALUES (@userId, 'inj', 1098, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-01-01T00:00:00.000Z')
+      ) VALUES (@userId, 1098, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-01-01T00:00:00.000Z')
     `,
     ).run({ userId: user.id });
 
@@ -293,7 +291,6 @@ const seedManyContestResults = (db: DatabaseSync, userId: string, count: number)
       `
       INSERT INTO user_contest_results (
         user_id,
-        cf_handle,
         contest_id,
         rank,
         points,
@@ -304,7 +301,7 @@ const seedManyContestResults = (db: DatabaseSync, userId: string, count: number)
         rating_delta,
         performance,
         last_checked_at
-      ) VALUES (@userId, 'inj', @contestId, @rank, 1, 0, 'CONTESTANT', 1500, 1510, 10, 1520, '2026-01-01T00:00:00.000Z')
+      ) VALUES (@userId, @contestId, @rank, 1, 0, 'CONTESTANT', 1500, 1510, 10, 1520, '2026-01-01T00:00:00.000Z')
     `,
     ).run({ userId, contestId, rank: index + 1 });
   }
@@ -368,7 +365,6 @@ test("contests page show filter paginates filtered totals from SQL", async () =>
         `
         INSERT INTO user_contest_results (
           user_id,
-          cf_handle,
           contest_id,
           rank,
           points,
@@ -381,7 +377,6 @@ test("contests page show filter paginates filtered totals from SQL", async () =>
           last_checked_at
         ) VALUES (
           @userId,
-          'inj',
           @contestId,
           10,
           1,

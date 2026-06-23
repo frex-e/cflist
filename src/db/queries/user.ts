@@ -91,13 +91,27 @@ export const setSolvedOverride = (
   solvedOverride: 0 | 1 | null,
   note: string | null,
 ): void => {
+  const canonicalRow = db
+    .prepare(
+      `
+      SELECT canonical_id AS canonicalId
+      FROM problems
+      WHERE contest_id = @contestId AND problem_index = @problemIndex
+    `,
+    )
+    .get({ contestId, problemIndex }) as { canonicalId: string } | undefined;
+
+  if (!canonicalRow) return;
+
+  const { canonicalId } = canonicalRow;
+
   if (solvedOverride === null && !note) {
     db.prepare(
       `
       DELETE FROM user_problem_overrides
-      WHERE user_id = @userId AND contest_id = @contestId AND problem_index = @problemIndex
+      WHERE user_id = @userId AND canonical_id = @canonicalId
     `,
-    ).run({ userId, contestId, problemIndex });
+    ).run({ userId, canonicalId });
     return;
   }
 
@@ -105,28 +119,25 @@ export const setSolvedOverride = (
     `
     INSERT INTO user_problem_overrides (
       user_id,
-      contest_id,
-      problem_index,
+      canonical_id,
       solved_override,
       note,
       updated_at
     ) VALUES (
       @userId,
-      @contestId,
-      @problemIndex,
+      @canonicalId,
       @solvedOverride,
       @note,
       @updatedAt
     )
-    ON CONFLICT(user_id, contest_id, problem_index) DO UPDATE SET
+    ON CONFLICT(user_id, canonical_id) DO UPDATE SET
       solved_override = excluded.solved_override,
       note = excluded.note,
       updated_at = excluded.updated_at
   `,
   ).run({
     userId,
-    contestId,
-    problemIndex,
+    canonicalId,
     solvedOverride,
     note,
     updatedAt: new Date().toISOString(),

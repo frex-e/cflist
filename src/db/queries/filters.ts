@@ -57,6 +57,15 @@ export const normalizeFilters = (input: URLSearchParams, userId: string, cfHandl
   };
 };
 
+export const problemListJoins = `
+  FROM problems p
+  LEFT JOIN contests c ON c.id = p.contest_id
+  LEFT JOIN canonical_cf_solved cs ON cs.canonical_id = p.canonical_id
+  LEFT JOIN user_problem_overrides upo
+    ON upo.user_id = @userId
+    AND upo.canonical_id = p.canonical_id
+`;
+
 export const baseFrom = `
   FROM problems p
   LEFT JOIN contests c ON c.id = p.contest_id
@@ -66,11 +75,11 @@ export const baseFrom = `
     AND ups.problem_index = p.problem_index
   LEFT JOIN user_problem_overrides upo
     ON upo.user_id = @userId
-    AND upo.contest_id = p.contest_id
-    AND upo.problem_index = p.problem_index
+    AND upo.canonical_id = p.canonical_id
 `;
 
-export const solvedExpr = "CASE WHEN COALESCE(ups.solved, 0) = 1 OR COALESCE(upo.solved_override, 0) = 1 THEN 1 ELSE 0 END";
+export const solvedExpr =
+  "CASE WHEN COALESCE(ups.solved, 0) = 1 OR COALESCE(upo.solved_override, 0) = 1 THEN 1 ELSE 0 END";
 
 export const buildWhere = (
   filters: ProblemFilters,
@@ -104,9 +113,13 @@ export const buildWhere = (
     });
   }
   if (includeSolvedFilter && filters.solved === "solved") {
-    clauses.push(`${solvedExpr} = 1`);
+    clauses.push(
+      "(COALESCE(cs.cf_solved, 0) = 1 OR COALESCE(upo.solved_override, 0) = 1)",
+    );
   } else if (includeSolvedFilter && filters.solved === "unsolved") {
-    clauses.push(`${solvedExpr} = 0`);
+    clauses.push(
+      "(COALESCE(cs.cf_solved, 0) = 0 AND COALESCE(upo.solved_override, 0) = 0)",
+    );
   }
 
   if (filters.tags.length > 0 && filters.tagMode === "all") {
@@ -151,18 +164,18 @@ export const orderBy = (
   alias = "p",
 ): string => {
   const dir = direction === "asc" ? "ASC" : "DESC";
-  const column = (name: string): string => alias ? `${alias}.${name}` : name;
-  if (sort === "rating") return `${column("rating")} IS NULL, ${column("rating")} ${dir}, ${column("contest_id")} DESC, ${column("problem_index")} ASC`;
-  if (sort === "solvedCount") return `${column("solved_count")} IS NULL, ${column("solved_count")} ${dir}, ${column("contest_id")} DESC, ${column("problem_index")} ASC`;
-  if (sort === "name") return `${column("name")} COLLATE NOCASE ${dir}, ${column("contest_id")} DESC, ${column("problem_index")} ASC`;
+  const column = (name: string): string => (alias ? `${alias}.${name}` : name);
+  if (sort === "rating") {
+    return `${column("rating")} IS NULL, ${column("rating")} ${dir}, ${column("contest_id")} DESC, ${column("problem_index")} ASC`;
+  }
+  if (sort === "solvedCount") {
+    return `${column("solved_count")} IS NULL, ${column("solved_count")} ${dir}, ${column("contest_id")} DESC, ${column("problem_index")} ASC`;
+  }
+  if (sort === "name") {
+    return `${column("name")} COLLATE NOCASE ${dir}, ${column("contest_id")} DESC, ${column("problem_index")} ASC`;
+  }
   return `${column("contest_id")} ${dir}, ${column("problem_index")} ASC`;
 };
-
-export const problemIdentityExpr = `
-  p.name
-  || CHAR(31) || COALESCE(CAST(p.rating AS TEXT), '')
-  || CHAR(31) || p.tags_json
-`;
 
 export const solvedFilterWhere = (filters: ProblemFilters): string => {
   if (filters.solved === "solved") return "WHERE p.effective_solved = 1";
@@ -170,11 +183,27 @@ export const solvedFilterWhere = (filters: ProblemFilters): string => {
   return "";
 };
 
+const canonicalCfSolvedCte = `
+  canonical_cf_solved AS (
+    SELECT
+      p.canonical_id,
+      MAX(CASE WHEN ups.solved = 1 THEN 1 ELSE 0 END) AS cf_solved
+    FROM problems p
+    LEFT JOIN user_problem_status ups
+      ON ups.user_id = @userId
+      AND ups.contest_id = p.contest_id
+      AND ups.problem_index = p.problem_index
+    GROUP BY p.canonical_id
+  )
+`;
+
 export const dedupedProblemsCte = (filters: ProblemFilters, where: string): string => `
-  WITH filtered AS (
+  WITH ${canonicalCfSolvedCte},
+  filtered AS (
     SELECT
       p.contest_id,
       p.problem_index,
+      p.canonical_id,
       p.name,
       p.rating,
       p.solved_count,
@@ -184,26 +213,26 @@ export const dedupedProblemsCte = (filters: ProblemFilters, where: string): stri
       c.derived_family,
       c.derived_division,
       c.derived_label,
-      CASE WHEN COALESCE(ups.solved, 0) = 1 THEN 1 ELSE 0 END AS row_cf_solved,
-      CASE WHEN COALESCE(upo.solved_override, 0) = 1 THEN 1 ELSE 0 END AS row_solved_override,
-      ${solvedExpr} AS row_effective_solved,
-      ${problemIdentityExpr} AS problem_identity
-    ${baseFrom}
+      COALESCE(cs.cf_solved, 0) AS cf_solved,
+      CASE WHEN COALESCE(upo.solved_override, 0) = 1 THEN 1 ELSE 0 END AS solved_override,
+      CASE
+        WHEN COALESCE(cs.cf_solved, 0) = 1 OR COALESCE(upo.solved_override, 0) = 1 THEN 1
+        ELSE 0
+      END AS effective_solved
+    ${problemListJoins}
     ${where}
   ),
-  ranked AS (
-    SELECT
-      *,
-      MAX(row_cf_solved) OVER (PARTITION BY problem_identity) AS cf_solved,
-      MAX(row_solved_override) OVER (PARTITION BY problem_identity) AS solved_override,
-      MAX(row_effective_solved) OVER (PARTITION BY problem_identity) AS effective_solved,
-      ROW_NUMBER() OVER (
-        PARTITION BY problem_identity
-        ORDER BY ${orderBy(filters.sort, filters.sortDirection, "")}
-      ) AS duplicate_rank
-    FROM filtered
-  ),
   deduped AS (
-    SELECT * FROM ranked WHERE duplicate_rank = 1
+    SELECT *
+    FROM (
+      SELECT
+        *,
+        ROW_NUMBER() OVER (
+          PARTITION BY canonical_id
+          ORDER BY ${orderBy(filters.sort, filters.sortDirection, "")}
+        ) AS duplicate_rank
+      FROM filtered
+    )
+    WHERE duplicate_rank = 1
   )
 `;

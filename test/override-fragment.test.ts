@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { createApp } from "../src/app.js";
@@ -45,10 +46,11 @@ const seedProblem = (db: DatabaseSync): void => {
       tags_json,
       url,
       raw_json,
-      updated_at
-    ) VALUES (1, 'A', 'Test Problem', 800, 10, '[]', 'https://codeforces.com/problemset/problem/1/A', '{}', '2026-01-01T00:00:00.000Z')
+      updated_at,
+      canonical_id
+    ) VALUES (1, 'A', 'Test Problem', 800, 10, '[]', 'https://codeforces.com/problemset/problem/1/A', '{}', '2026-01-01T00:00:00.000Z', @canonicalId)
   `,
-  ).run();
+  ).run({ canonicalId: randomUUID() });
 };
 
 const withSeededApp = async (

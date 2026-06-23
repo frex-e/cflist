@@ -5,8 +5,6 @@ import type { CodeforcesClient } from "../client.js";
 
 const now = (): string => new Date().toISOString();
 
-const handleKey = (handle: string): string => handle.toLowerCase();
-
 export const parseCachedJson = <T>(value: string | undefined): T | undefined => {
   if (!value) return undefined;
   try {
@@ -80,10 +78,8 @@ const persistContestPerformance = (
   db: Db,
   userId: string,
   contestId: number,
-  handle: string,
   performance: number | null,
 ): void => {
-  const key = handleKey(handle);
   db.prepare(
     `
     UPDATE user_contest_results
@@ -96,26 +92,22 @@ const persistContestPerformance = (
     `
     INSERT INTO contest_performance_cache (
       contest_id,
-      handle_key,
-      handle,
+      user_id,
       performance,
       calculated_at
     ) VALUES (
       @contestId,
-      @handleKey,
-      @handle,
+      @userId,
       @performance,
       @calculatedAt
     )
-    ON CONFLICT(contest_id, handle_key) DO UPDATE SET
-      handle = excluded.handle,
+    ON CONFLICT(contest_id, user_id) DO UPDATE SET
       performance = excluded.performance,
       calculated_at = excluded.calculated_at
   `,
   ).run({
     contestId,
-    handleKey: key,
-    handle,
+    userId,
     performance,
     calculatedAt: now(),
   });
@@ -124,18 +116,18 @@ const persistContestPerformance = (
 export const backfillUserContestPerformances = (db: Db, userId: string): void => {
   const cachedRows = db.prepare(
     `
-    SELECT ucr.contest_id, ucr.cf_handle, cpc.performance
+    SELECT ucr.contest_id, cpc.performance
     FROM user_contest_results ucr
     JOIN contest_performance_cache cpc
       ON cpc.contest_id = ucr.contest_id
-      AND cpc.handle_key = lower(ucr.cf_handle)
+      AND cpc.user_id = ucr.user_id
     WHERE ucr.user_id = @userId
       AND ucr.new_rating IS NOT NULL
       AND ucr.performance IS NULL
       AND (ucr.rank IS NULL OR ucr.rank != 1)
       AND cpc.performance IS NOT NULL
   `,
-  ).all({ userId }) as { contest_id: number; cf_handle: string; performance: number }[];
+  ).all({ userId }) as { contest_id: number; performance: number }[];
 
   for (const row of cachedRows) {
     db.prepare(
@@ -147,21 +139,27 @@ export const backfillUserContestPerformances = (db: Db, userId: string): void =>
     ).run({ userId, contestId: row.contest_id, performance: row.performance });
   }
 
+  const handleRow = db
+    .prepare(`SELECT cfHandle FROM "user" WHERE id = @userId`)
+    .get({ userId }) as { cfHandle: string } | undefined;
+  const handle = handleRow?.cfHandle;
+  if (!handle) return;
+
   const rows = db.prepare(
     `
-    SELECT contest_id, cf_handle, rank
+    SELECT contest_id, rank
     FROM user_contest_results
     WHERE user_id = @userId
       AND new_rating IS NOT NULL
       AND performance IS NULL
       AND (rank IS NULL OR rank != 1)
   `,
-  ).all({ userId }) as { contest_id: number; cf_handle: string; rank: number | null }[];
+  ).all({ userId }) as { contest_id: number; rank: number | null }[];
 
   for (const row of rows) {
-    const performance = calculatePerformanceFromCache(db, userId, row.contest_id, row.cf_handle);
+    const performance = calculatePerformanceFromCache(db, userId, row.contest_id, handle);
     if (performance === null) continue;
-    persistContestPerformance(db, userId, row.contest_id, row.cf_handle, performance);
+    persistContestPerformance(db, userId, row.contest_id, performance);
   }
 };
 
@@ -202,21 +200,20 @@ export const getOrCalculatePerformance = async (
   contestId: number,
   handle: string,
 ): Promise<number | null> => {
-  const key = handleKey(handle);
   const cached = db
     .prepare(
       `
       SELECT performance
       FROM contest_performance_cache
-      WHERE contest_id = @contestId AND handle_key = @handleKey
+      WHERE contest_id = @contestId AND user_id = @userId
     `,
     )
-    .get({ contestId, handleKey: key }) as { performance: number | null } | undefined;
+    .get({ contestId, userId }) as { performance: number | null } | undefined;
   if (cached) return cached.performance;
 
   const changes = await getOrFetchRatingChanges(db, client, contestId);
   const ratedContestIndex = getRatedContestIndex(db, userId, contestId);
   const performance = estimateContestPerformance(changes, handle, ratedContestIndex)?.performance ?? null;
-  persistContestPerformance(db, userId, contestId, handle, performance);
+  persistContestPerformance(db, userId, contestId, performance);
   return performance;
 };

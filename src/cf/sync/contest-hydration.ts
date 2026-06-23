@@ -93,14 +93,12 @@ const shouldSkipFullHydration = async (
     `
     UPDATE user_contest_results
     SET
-      cf_handle = @cfHandle,
       performance = @performance,
       last_checked_at = @checkedAt
     WHERE user_id = @userId AND contest_id = @contestId
   `,
   ).run({
     userId,
-    cfHandle,
     contestId,
     performance,
     checkedAt,
@@ -175,7 +173,6 @@ const persistContestHydration = (
   const upsertContestResult = db.prepare(`
     INSERT INTO user_contest_results (
       user_id,
-      cf_handle,
       contest_id,
       rank,
       points,
@@ -188,7 +185,6 @@ const persistContestHydration = (
       last_checked_at
     ) VALUES (
       @userId,
-      @cfHandle,
       @contestId,
       @rank,
       @points,
@@ -201,7 +197,6 @@ const persistContestHydration = (
       @checkedAt
     )
     ON CONFLICT(user_id, contest_id) DO UPDATE SET
-      cf_handle = excluded.cf_handle,
       rank = excluded.rank,
       points = excluded.points,
       penalty = excluded.penalty,
@@ -250,7 +245,6 @@ const persistContestHydration = (
   transaction(db, () => {
     upsertContestResult.run({
       userId,
-      cfHandle,
       contestId,
       rank: row?.rank ?? existingRatingChange?.rank ?? null,
       points: row?.points ?? null,

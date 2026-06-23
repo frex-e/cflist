@@ -30,13 +30,12 @@ test("backfillUserContestPerformances restores performance from cached rating ch
 
   db.prepare(`
     INSERT INTO user_contest_results (
-      user_id, cf_handle, contest_id, rank, old_rating, new_rating, rating_delta, performance, last_checked_at
+      user_id, contest_id, rank, old_rating, new_rating, rating_delta, performance, last_checked_at
     ) VALUES (
-      @userId, @cfHandle, @contestId, @rank, @oldRating, @newRating, @ratingDelta, NULL, '2026-01-01T00:00:00.000Z'
+      @userId, @contestId, @rank, @oldRating, @newRating, @ratingDelta, NULL, '2026-01-01T00:00:00.000Z'
     )
   `).run({
     userId,
-    cfHandle,
     contestId,
     rank: 102,
     oldRating: 0,

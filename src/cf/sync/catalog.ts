@@ -10,6 +10,7 @@ import { classifyContest } from "../classify.js";
 import { CodeforcesClient } from "../client.js";
 import type { CfProblem } from "../types.js";
 import { getCodeforcesClient } from "../shared-client.js";
+import { linkCanonicalIdsByRoundPairs, refreshRoundPairs } from "./canonical-problems.js";
 import { codeforcesProblemUrl, now } from "./helpers.js";
 import { syncState } from "./state.js";
 
@@ -88,6 +89,7 @@ const runCatalogSync = async (db: Db, client: CodeforcesClient): Promise<void> =
           updatedAt: fetchedAt,
         });
       }
+      refreshRoundPairs(db);
     });
 
     const problemset = await client.problemset();
@@ -119,6 +121,7 @@ const runCatalogSync = async (db: Db, client: CodeforcesClient): Promise<void> =
           solvedCount: statsByKey.get(problemKey(contestId, problemIndex)) ?? null,
         }, "catalog");
       }
+      linkCanonicalIdsByRoundPairs(db);
     });
 
     syncState.lastCatalogFinishedAt = now();

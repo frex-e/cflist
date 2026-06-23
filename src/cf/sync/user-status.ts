@@ -35,7 +35,6 @@ const writeBasicContestResults = (
   const upsert = db.prepare(`
     INSERT INTO user_contest_results (
       user_id,
-      cf_handle,
       contest_id,
       rank,
       points,
@@ -48,7 +47,6 @@ const writeBasicContestResults = (
       last_checked_at
     ) VALUES (
       @userId,
-      @cfHandle,
       @contestId,
       @rank,
       NULL,
@@ -61,7 +59,6 @@ const writeBasicContestResults = (
       @checkedAt
     )
     ON CONFLICT(user_id, contest_id) DO UPDATE SET
-      cf_handle = excluded.cf_handle,
       rank = COALESCE(excluded.rank, user_contest_results.rank),
       old_rating = COALESCE(excluded.old_rating, user_contest_results.old_rating),
       new_rating = COALESCE(excluded.new_rating, user_contest_results.new_rating),
@@ -74,7 +71,6 @@ const writeBasicContestResults = (
       const ratingChange = ratingsByContestId.get(contestId);
       upsert.run({
         userId,
-        cfHandle,
         contestId,
         rank: ratingChange?.rank ?? null,
         oldRating: ratingChange?.oldRating ?? null,
@@ -189,7 +185,6 @@ export const syncUserStatus = async (
     const insertStatus = db.prepare(`
       INSERT INTO user_problem_status (
         user_id,
-        cf_handle,
         contest_id,
         problem_index,
         solved,
@@ -199,7 +194,6 @@ export const syncUserStatus = async (
         last_checked_at
       ) VALUES (
         @userId,
-        @cfHandle,
         @contestId,
         @problemIndex,
         1,
@@ -214,7 +208,6 @@ export const syncUserStatus = async (
       for (const item of accepted.values()) {
         insertStatus.run({
           userId,
-          cfHandle,
           contestId: item.contestId,
           problemIndex: item.problemIndex,
           firstSubmissionId: item.firstSubmissionId,

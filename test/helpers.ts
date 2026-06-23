@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { createApp } from "../src/app.js";
 import { setVerifyHandleForTests } from "../src/cf/verify-handle.js";
@@ -104,6 +105,7 @@ export const seedProblem = (
     name?: string;
     rating?: number;
     url?: string;
+    canonicalId?: string;
   },
 ): void => {
   db.prepare(
@@ -117,8 +119,9 @@ export const seedProblem = (
       tags_json,
       url,
       raw_json,
-      updated_at
-    ) VALUES (@contestId, @index, @name, @rating, 10, '[]', @url, '{}', '2026-01-01T00:00:00.000Z')
+      updated_at,
+      canonical_id
+    ) VALUES (@contestId, @index, @name, @rating, 10, '[]', @url, '{}', '2026-01-01T00:00:00.000Z', @canonicalId)
   `,
   ).run({
     contestId: problem.contestId,
@@ -126,6 +129,7 @@ export const seedProblem = (
     name: problem.name ?? "Test Problem",
     rating: problem.rating ?? 800,
     url: problem.url ?? `https://codeforces.com/problemset/problem/${problem.contestId}/${problem.index}`,
+    canonicalId: problem.canonicalId ?? randomUUID(),
   });
 };
 

@@ -1,5 +1,11 @@
 import { backfillUserContestPerformances } from "../cf/sync/cache.js";
+import {
+  backfillCanonicalIds,
+  linkCanonicalIdsByRoundPairs,
+  refreshRoundPairs,
+} from "../cf/sync/canonical-problems.js";
 import type { Db } from "./connection.js";
+import { cleanupOrphanRows } from "./migrate-audit.js";
 
 const MIGRATION_1_SQL = `
     CREATE TABLE IF NOT EXISTS "user" (
@@ -335,6 +341,334 @@ const applyPerformanceBackfillMigration = (db: Db): void => {
   recordMigration(db, 5);
 };
 
+const columnExists = (db: Db, table: string, column: string): boolean => {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  return rows.some((row) => row.name === column);
+};
+
+const migrateOverridesToCanonical = (db: Db): void => {
+  db.exec(`
+    CREATE TABLE user_problem_overrides_new (
+      user_id TEXT NOT NULL,
+      canonical_id TEXT NOT NULL,
+      solved_override INTEGER CHECK (solved_override IS NULL OR solved_override IN (0, 1)),
+      note TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, canonical_id),
+      FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
+    )
+  `);
+
+  db.exec(`
+    INSERT INTO user_problem_overrides_new (user_id, canonical_id, solved_override, note, updated_at)
+    SELECT
+      merged.user_id,
+      merged.canonical_id,
+      merged.solved_override,
+      (
+        SELECT u.note
+        FROM user_problem_overrides u
+        JOIN problems p ON p.contest_id = u.contest_id AND p.problem_index = u.problem_index
+        WHERE u.user_id = merged.user_id
+          AND p.canonical_id = merged.canonical_id
+        ORDER BY u.updated_at DESC
+        LIMIT 1
+      ) AS note,
+      merged.updated_at
+    FROM (
+      SELECT
+        u.user_id,
+        p.canonical_id,
+        MAX(u.solved_override) AS solved_override,
+        MAX(u.updated_at) AS updated_at
+      FROM user_problem_overrides u
+      JOIN problems p ON p.contest_id = u.contest_id AND p.problem_index = u.problem_index
+      GROUP BY u.user_id, p.canonical_id
+    ) merged
+  `);
+
+  db.exec(`DROP TABLE user_problem_overrides`);
+  db.exec(`ALTER TABLE user_problem_overrides_new RENAME TO user_problem_overrides`);
+};
+
+const applyCanonicalMigration = (db: Db): void => {
+  if (currentVersion(db) >= 6) return;
+  if (!tableExists(db, "problems")) {
+    recordMigration(db, 6);
+    return;
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS contest_round_pairs (
+      contest_id_low INTEGER NOT NULL,
+      contest_id_high INTEGER NOT NULL,
+      start_time_seconds INTEGER NOT NULL,
+      PRIMARY KEY (contest_id_low, contest_id_high),
+      FOREIGN KEY (contest_id_low) REFERENCES contests(id) ON DELETE CASCADE,
+      FOREIGN KEY (contest_id_high) REFERENCES contests(id) ON DELETE CASCADE
+    )
+  `);
+
+  if (!columnExists(db, "problems", "canonical_id")) {
+    db.exec(`ALTER TABLE problems ADD COLUMN canonical_id TEXT`);
+  }
+
+  backfillCanonicalIds(db);
+
+  db.exec(`
+    UPDATE problems
+    SET canonical_id = lower(hex(randomblob(16)))
+    WHERE canonical_id IS NULL OR canonical_id = ''
+  `);
+
+  if (columnExists(db, "user_problem_overrides", "contest_id")) {
+    migrateOverridesToCanonical(db);
+  }
+
+  recordMigration(db, 6);
+};
+
+const applyIntegrityMigration = (db: Db): void => {
+  if (currentVersion(db) >= 7) return;
+  if (!tableExists(db, "problems")) {
+    recordMigration(db, 7);
+    return;
+  }
+
+  cleanupOrphanRows(db);
+
+  db.exec("PRAGMA foreign_keys = OFF");
+
+  try {
+  if (columnExists(db, "contest_performance_cache", "handle_key") && tableExists(db, "user_contest_results")) {
+    db.exec(`
+      CREATE TABLE contest_performance_cache_new (
+        contest_id INTEGER NOT NULL,
+        user_id TEXT NOT NULL,
+        performance INTEGER,
+        calculated_at TEXT NOT NULL,
+        PRIMARY KEY (contest_id, user_id),
+        FOREIGN KEY (contest_id) REFERENCES contests(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
+      )
+    `);
+    const handleJoin = columnExists(db, "user_contest_results", "cf_handle")
+      ? "AND lower(ucr.cf_handle) = cpc.handle_key"
+      : "AND ucr.user_id IS NOT NULL";
+    db.exec(`
+      INSERT INTO contest_performance_cache_new (contest_id, user_id, performance, calculated_at)
+      SELECT cpc.contest_id, ucr.user_id, cpc.performance, cpc.calculated_at
+      FROM contest_performance_cache cpc
+      JOIN user_contest_results ucr
+        ON ucr.contest_id = cpc.contest_id
+        ${handleJoin}
+    `);
+    db.exec(`DROP TABLE contest_performance_cache`);
+    db.exec(`ALTER TABLE contest_performance_cache_new RENAME TO contest_performance_cache`);
+  }
+
+  const problemsetNameSelect = columnExists(db, "problems", "problemset_name")
+    ? "problemset_name"
+    : "NULL AS problemset_name";
+  const typeSelect = columnExists(db, "problems", "type") ? "type" : "NULL AS type";
+  const pointsSelect = columnExists(db, "problems", "points") ? "points" : "NULL AS points";
+
+  db.exec(`
+    CREATE TABLE problems_new (
+      contest_id INTEGER NOT NULL,
+      problemset_name TEXT,
+      problem_index TEXT NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT,
+      points REAL,
+      rating INTEGER,
+      solved_count INTEGER,
+      tags_json TEXT NOT NULL,
+      url TEXT NOT NULL,
+      raw_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      canonical_id TEXT NOT NULL,
+      PRIMARY KEY (contest_id, problem_index),
+      FOREIGN KEY (contest_id) REFERENCES contests(id) ON DELETE CASCADE
+    )
+  `);
+  db.exec(`
+    INSERT INTO problems_new (
+      contest_id, problemset_name, problem_index, name, type, points, rating,
+      solved_count, tags_json, url, raw_json, updated_at, canonical_id
+    )
+    SELECT
+      contest_id, ${problemsetNameSelect}, problem_index, name, ${typeSelect}, ${pointsSelect}, rating,
+      solved_count, tags_json, url, raw_json, updated_at, canonical_id
+    FROM problems
+  `);
+  db.exec(`DROP TABLE problems`);
+  db.exec(`ALTER TABLE problems_new RENAME TO problems`);
+
+  if (tableExists(db, "user_problem_status")) {
+    db.exec(`
+      CREATE TABLE user_problem_status_new (
+        user_id TEXT NOT NULL,
+        contest_id INTEGER NOT NULL,
+        problem_index TEXT NOT NULL,
+        solved INTEGER NOT NULL DEFAULT 0 CHECK (solved IN (0, 1)),
+        first_accepted_submission_id INTEGER,
+        first_accepted_at_seconds INTEGER,
+        accepted_count INTEGER NOT NULL DEFAULT 0,
+        last_checked_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, contest_id, problem_index),
+        FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE,
+        FOREIGN KEY (contest_id, problem_index) REFERENCES problems(contest_id, problem_index) ON DELETE CASCADE
+      )
+    `);
+    db.exec(`
+      INSERT INTO user_problem_status_new (
+        user_id, contest_id, problem_index, solved, first_accepted_submission_id,
+        first_accepted_at_seconds, accepted_count, last_checked_at
+      )
+      SELECT
+        user_id, contest_id, problem_index, solved, first_accepted_submission_id,
+        first_accepted_at_seconds, accepted_count, last_checked_at
+      FROM user_problem_status
+    `);
+    db.exec(`DROP TABLE user_problem_status`);
+    db.exec(`ALTER TABLE user_problem_status_new RENAME TO user_problem_status`);
+  }
+
+  if (tableExists(db, "user_contest_results")) {
+    db.exec(`
+      CREATE TABLE user_contest_results_new (
+        user_id TEXT NOT NULL,
+        contest_id INTEGER NOT NULL,
+        rank INTEGER,
+        points REAL,
+        penalty INTEGER,
+        participant_type TEXT,
+        old_rating INTEGER,
+        new_rating INTEGER,
+        rating_delta INTEGER,
+        performance INTEGER,
+        last_checked_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, contest_id),
+        FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE,
+        FOREIGN KEY (contest_id) REFERENCES contests(id) ON DELETE CASCADE
+      )
+    `);
+    db.exec(`
+      INSERT INTO user_contest_results_new (
+        user_id, contest_id, rank, points, penalty, participant_type,
+        old_rating, new_rating, rating_delta, performance, last_checked_at
+      )
+      SELECT
+        user_id, contest_id, rank, points, penalty, participant_type,
+        old_rating, new_rating, rating_delta, performance, last_checked_at
+      FROM user_contest_results
+    `);
+    db.exec(`DROP TABLE user_contest_results`);
+    db.exec(`ALTER TABLE user_contest_results_new RENAME TO user_contest_results`);
+  }
+
+  if (tableExists(db, "sync_runs")) {
+    db.exec(`
+      CREATE TABLE sync_runs_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        status TEXT NOT NULL CHECK (status IN ('running', 'success', 'failed')),
+        source TEXT NOT NULL,
+        user_id TEXT REFERENCES "user"(id) ON DELETE SET NULL,
+        cf_handle TEXT,
+        message TEXT
+      )
+    `);
+    db.exec(`
+      INSERT INTO sync_runs_new (
+        id, started_at, finished_at, status, source, user_id, cf_handle, message
+      )
+      SELECT id, started_at, finished_at, status, source, user_id, cf_handle, message
+      FROM sync_runs
+    `);
+    db.exec(`DROP TABLE sync_runs`);
+    db.exec(`ALTER TABLE sync_runs_new RENAME TO sync_runs`);
+  }
+
+  if (tableExists(db, "contest_sync_jobs")) {
+    db.exec(`
+      CREATE TABLE contest_sync_jobs_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        cf_handle TEXT NOT NULL,
+        contest_id INTEGER NOT NULL,
+        priority INTEGER NOT NULL DEFAULT 100,
+        status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'done', 'failed')),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        available_at TEXT NOT NULL,
+        started_at TEXT,
+        finished_at TEXT,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (user_id, contest_id),
+        FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE,
+        FOREIGN KEY (contest_id) REFERENCES contests(id) ON DELETE CASCADE
+      )
+    `);
+    db.exec(`
+      INSERT INTO contest_sync_jobs_new (
+        id, user_id, cf_handle, contest_id, priority, status, attempts, available_at,
+        started_at, finished_at, last_error, created_at, updated_at
+      )
+      SELECT
+        id, user_id, cf_handle, contest_id, priority, status, attempts, available_at,
+        started_at, finished_at, last_error, created_at, updated_at
+      FROM contest_sync_jobs
+    `);
+    db.exec(`DROP TABLE contest_sync_jobs`);
+    db.exec(`ALTER TABLE contest_sync_jobs_new RENAME TO contest_sync_jobs`);
+  }
+
+  if (tableExists(db, "account") && !db.prepare(`SELECT sql FROM sqlite_master WHERE type='index' AND name='account_provider_account_idx'`).get()) {
+    db.exec(`CREATE UNIQUE INDEX account_provider_account_idx ON "account"(providerId, accountId)`);
+  }
+
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_problems_contest ON problems(contest_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_problems_canonical_id ON problems(canonical_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_problems_contest_name ON problems(contest_id, name)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_problems_needs_metadata ON problems(updated_at) WHERE rating IS NULL`);
+  if (tableExists(db, "user_problem_status")) {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_user_status_user_solved ON user_problem_status(user_id, solved)`);
+  }
+  if (tableExists(db, "user_contest_results")) {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_user_contest_results_user ON user_contest_results(user_id, contest_id DESC)`);
+  }
+  if (tableExists(db, "contest_sync_jobs")) {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_contest_sync_jobs_claim ON contest_sync_jobs(status, available_at, priority, id)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_contest_sync_jobs_user ON contest_sync_jobs(user_id, status)`);
+  }
+  if (tableExists(db, "sync_runs")) {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_sync_runs_started_at ON sync_runs(started_at)`);
+  }
+
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
+  }
+
+  recordMigration(db, 7);
+};
+
+const applyCanonicalRoundPairFixMigration = (db: Db): void => {
+  if (currentVersion(db) >= 8) return;
+  if (!tableExists(db, "contest_round_pairs") || !tableExists(db, "problems")) {
+    recordMigration(db, 8);
+    return;
+  }
+
+  refreshRoundPairs(db);
+  linkCanonicalIdsByRoundPairs(db);
+
+  recordMigration(db, 8);
+};
+
 export const migrate = (db: Db): void => {
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -348,4 +682,7 @@ export const migrate = (db: Db): void => {
   applyPerformanceRecalculationMigration(db);
   applyBootstrapPerformanceMigration(db);
   applyPerformanceBackfillMigration(db);
+  applyCanonicalMigration(db);
+  applyIntegrityMigration(db);
+  applyCanonicalRoundPairFixMigration(db);
 };
