@@ -69,7 +69,7 @@ export type ContestProblemResultRow = {
   best_submission_time_seconds: number | null;
 };
 
-export type ContestShowMode = "all" | "participated" | "rated";
+export type ContestShowMode = "all" | "upsolved" | "participated" | "rated";
 
 export type ContestListResult = {
   rows: ContestResultRow[];

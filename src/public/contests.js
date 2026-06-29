@@ -12,7 +12,7 @@
     if (!(button instanceof HTMLButtonElement)) return;
 
     const show = button.dataset.contestShow;
-    if (show !== "all" && show !== "participated" && show !== "rated") return;
+    if (show !== "all" && show !== "upsolved" && show !== "participated" && show !== "rated") return;
 
     const url = new URL(window.location.href);
     url.searchParams.delete("page");

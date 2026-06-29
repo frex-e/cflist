@@ -17,6 +17,22 @@ type ContestListRow = Omit<ContestResultRow, "problems"> & {
 const clamp = (value: number, min: number, max: number): number => Math.min(Math.max(value, min), max);
 
 export const buildContestShowWhere = (show: ContestShowMode): { clause: string; params: Record<string, never> } => {
+  if (show === "upsolved") {
+    return {
+      clause: `
+        AND (
+          NOT (ucr.rank IS NULL AND ucr.points IS NULL)
+          OR EXISTS (
+            SELECT 1
+            FROM user_contest_problem_results ucpr
+            WHERE ucpr.user_id = ucr.user_id
+              AND ucpr.contest_id = ucr.contest_id
+              AND ucpr.upsolved = 1
+          )
+        )`.trim(),
+      params: {},
+    };
+  }
   if (show === "participated") {
     return { clause: "AND NOT (ucr.rank IS NULL AND ucr.points IS NULL)", params: {} };
   }

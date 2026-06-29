@@ -7,6 +7,7 @@ import {
   filterContestTableRows,
   isUnratedContest,
   isUpsolveOnlyContest,
+  matchesUpsolvedFilter,
   parseContestTableFilters,
 } from "../src/views/contests/filters.js";
 
@@ -38,6 +39,11 @@ test("parseContestTableFilters reads show mode and page from query params", () =
     page: 1,
     pageSize: 50,
   });
+  assert.deepEqual(parseContestTableFilters(new URLSearchParams("show=upsolved&page=2")), {
+    show: "upsolved",
+    page: 2,
+    pageSize: 50,
+  });
   assert.deepEqual(parseContestTableFilters(new URLSearchParams("show=rated&page=3")), {
     show: "rated",
     page: 3,
@@ -52,12 +58,15 @@ test("parseContestTableFilters reads show mode and page from query params", () =
 
 test("contestTableFilterQuery omits defaults and serializes active filters", () => {
   assert.equal(contestTableFilterQuery({ show: "all", page: 1, pageSize: 50 }), "");
+  assert.equal(contestTableFilterQuery({ show: "upsolved", page: 1, pageSize: 50 }), "?show=upsolved");
   assert.equal(contestTableFilterQuery({ show: "participated", page: 1, pageSize: 50 }), "?show=participated");
   assert.equal(contestTableFilterQuery({ show: "rated", page: 2, pageSize: 50 }), "?show=rated&page=2");
 });
 
 test("buildContestShowWhere maps show modes to SQL clauses", () => {
   assert.equal(buildContestShowWhere("all").clause, "");
+  assert.match(buildContestShowWhere("upsolved").clause, /upsolved = 1/);
+  assert.match(buildContestShowWhere("upsolved").clause, /rank IS NULL/);
   assert.match(buildContestShowWhere("participated").clause, /rank IS NULL/);
   assert.match(buildContestShowWhere("rated").clause, /new_rating IS NOT NULL/);
 });
@@ -67,17 +76,59 @@ test("contest table filters classify unrated and upsolve-only rows", () => {
   assert.equal(isUnratedContest(row({ new_rating: null, rating_delta: null })), true);
   assert.equal(isUpsolveOnlyContest(row()), false);
   assert.equal(isUpsolveOnlyContest(row({ rank: null, points: null })), true);
+  assert.equal(matchesUpsolvedFilter(row()), true);
+  assert.equal(matchesUpsolvedFilter(row({ rank: null, points: null })), false);
+  assert.equal(
+    matchesUpsolvedFilter(row({
+      rank: null,
+      points: null,
+      problems: [{
+        contest_id: 1,
+        problem_index: "B",
+        name: "B",
+        url: "",
+        solved_in_contest: 0,
+        upsolved: 1,
+        points: null,
+        rejected_attempt_count: null,
+        best_submission_time_seconds: null,
+      }],
+    })),
+    true,
+  );
 });
 
 test("filterContestTableRows applies mutually exclusive show modes", () => {
   const rows = [
     row({ contest_id: 1, contest_name: "Rated" }),
     row({ contest_id: 2, contest_name: "Unrated", new_rating: null, rating_delta: null }),
-    row({ contest_id: 3, contest_name: "Upsolve", rank: null, points: null, new_rating: null, rating_delta: null }),
+    row({
+      contest_id: 3,
+      contest_name: "Upsolve",
+      rank: null,
+      points: null,
+      new_rating: null,
+      rating_delta: null,
+      problems: [{
+        contest_id: 3,
+        problem_index: "B",
+        name: "B",
+        url: "",
+        solved_in_contest: 0,
+        upsolved: 1,
+        points: null,
+        rejected_attempt_count: null,
+        best_submission_time_seconds: null,
+      }],
+    }),
   ];
 
   assert.deepEqual(
     filterContestTableRows(rows, { show: "all", page: 1, pageSize: 50 }).map((item) => item.contest_id),
+    [1, 2, 3],
+  );
+  assert.deepEqual(
+    filterContestTableRows(rows, { show: "upsolved", page: 1, pageSize: 50 }).map((item) => item.contest_id),
     [1, 2, 3],
   );
   assert.deepEqual(

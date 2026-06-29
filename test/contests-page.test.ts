@@ -179,6 +179,7 @@ test("contests page renders rating, performance, and problem outcome pills", asy
     assert.match(html, /id="contest-rows"/);
     assert.doesNotMatch(html, /Contest history \(/);
     assert.match(html, /data-contest-show="all"/);
+    assert.match(html, /data-contest-show="upsolved"/);
     assert.match(html, /data-contest-show="participated"/);
     assert.match(html, /data-contest-show="rated"/);
   });
@@ -242,6 +243,42 @@ test("contests page show filter keeps mutually exclusive table modes", async () 
       ) VALUES (@userId, 1098, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-01-01T00:00:00.000Z')
     `,
     ).run({ userId: user.id });
+
+    db.prepare(
+      `
+      INSERT INTO problems (
+        contest_id,
+        problem_index,
+        name,
+        tags_json,
+        url,
+        raw_json,
+        updated_at,
+        canonical_id
+      ) VALUES (1098, 'B', 'Problem B', '[]', 'https://codeforces.com/contest/1098/problem/B', '{}', '2026-01-01T00:00:00.000Z', @canonicalId)
+    `,
+    ).run({ canonicalId: randomUUID() });
+
+    db.prepare(
+      `
+      INSERT INTO user_contest_problem_results (
+        user_id,
+        contest_id,
+        problem_index,
+        solved_in_contest,
+        upsolved
+      ) VALUES (@userId, 1098, 'B', 0, 1)
+    `,
+    ).run({ userId: user.id });
+
+    const upsolved = await app.request("/contests?show=upsolved", { headers: { cookie } });
+    const upsolvedHtml = await upsolved.text();
+    assert.equal(upsolved.status, 200);
+    assert.match(upsolvedHtml, /Codeforces Round 1100 \(Div\. 2\)/);
+    assert.match(upsolvedHtml, /Codeforces Round 1099 \(Div\. 2\)/);
+    assert.match(upsolvedHtml, /Upsolve Round \(Div\. 2\)/);
+    assert.match(upsolvedHtml, /Showing 1-3 of 3/);
+    assert.match(upsolvedHtml, /data-contest-show="upsolved"[^>]*aria-pressed="true"/);
 
     const participated = await app.request("/contests?show=participated", { headers: { cookie } });
     const participatedHtml = await participated.text();

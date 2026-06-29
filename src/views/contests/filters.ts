@@ -19,7 +19,7 @@ export const parseContestTableFilters = (searchParams: URLSearchParams): Contest
   const parsedPage = pageParam ? Number.parseInt(pageParam, 10) : 1;
 
   return {
-    show: show === "participated" || show === "rated" ? show : "all",
+    show: show === "upsolved" || show === "participated" || show === "rated" ? show : "all",
     page: clamp(Number.isFinite(parsedPage) ? parsedPage : 1, 1, 100_000),
     pageSize: CONTEST_PAGE_SIZE,
   };
@@ -30,6 +30,9 @@ export const isUnratedContest = (row: ContestResultRow): boolean => row.new_rati
 export const isUpsolveOnlyContest = (row: ContestResultRow): boolean =>
   row.rank === null && row.points === null;
 
+export const matchesUpsolvedFilter = (row: ContestResultRow): boolean =>
+  !isUpsolveOnlyContest(row) || row.problems.some((problem) => problem.upsolved !== 0);
+
 export const filterContestTableRows = (
   rows: ContestResultRow[],
   filters: ContestTableFilters,
@@ -37,6 +40,7 @@ export const filterContestTableRows = (
   if (filters.show === "all") return rows;
 
   return rows.filter((row) => {
+    if (filters.show === "upsolved") return matchesUpsolvedFilter(row);
     if (filters.show === "participated") return !isUpsolveOnlyContest(row);
     return !isUnratedContest(row);
   });
