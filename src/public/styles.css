@@ -951,6 +951,25 @@ td.tags {
   gap: 3px;
 }
 
+.contest-name-cell {
+  max-width: 14rem;
+  min-width: 8rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.contest-name-link {
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.contest-name-link:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+
 .contest-label {
   color: var(--muted);
   font-size: 11px;
@@ -1184,7 +1203,7 @@ td.tags {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
 }
 
 .contest-legend {
@@ -1201,20 +1220,32 @@ td.tags {
 
 .contest-problem-pill {
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 24px;
-  height: 22px;
-  padding: 0 7px;
+  align-items: stretch;
+  min-width: 30px;
+  height: 28px;
   border: 1px solid var(--border-strong);
-  border-radius: 5px;
-  color: #ffffff;
-  font-size: 12px;
+  border-radius: 6px;
+  font-size: 13px;
   font-style: normal;
   font-weight: 760;
   line-height: 1;
   text-decoration: none;
   white-space: nowrap;
+  overflow: hidden;
+}
+
+.contest-problem-rating-stripe {
+  flex: 0 0 5px;
+  align-self: stretch;
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.55);
+}
+
+.contest-problem-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 0 8px;
 }
 
 .contest-problem-pill:hover {
@@ -1222,18 +1253,33 @@ td.tags {
 }
 
 .contest-problem-pill.contest-solved {
-  border-color: var(--ok);
-  background: var(--ok);
+  border-color: #9ecdb3;
+  background: #dcefe3;
+  color: #0f5c3d;
+}
+
+.contest-problem-pill.contest-solved:hover {
+  background: #d0e8da;
 }
 
 .contest-problem-pill.upsolved {
-  border-color: #337d99;
-  background: #4b9fbd;
+  border-color: #8ebdcc;
+  background: #d9eef5;
+  color: #1d5f75;
+}
+
+.contest-problem-pill.upsolved:hover {
+  background: #cce6f0;
 }
 
 .contest-problem-pill.unsolved {
-  border-color: #777772;
-  background: #777772;
+  border-color: #c8c8c4;
+  background: #ececea;
+  color: #555550;
+}
+
+.contest-problem-pill.unsolved:hover {
+  background: #e3e3e0;
 }
 
 .delta-positive {

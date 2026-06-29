@@ -138,24 +138,50 @@ const RatingValue = ({ value }: { value: number | null }) => {
   );
 };
 
-const ProblemPill = ({ problem }: { problem: ContestProblemResultRow }) => {
-  const state = problem.solved_in_contest
+const problemPillState = (problem: ContestProblemResultRow): "contest-solved" | "upsolved" | "unsolved" =>
+  problem.solved_in_contest
     ? "contest-solved"
     : problem.upsolved
       ? "upsolved"
       : "unsolved";
-  const title = problem.solved_in_contest
-    ? `${problem.problem_index}: solved in contest`
-    : problem.upsolved
-      ? `${problem.problem_index}: upsolved after contest`
-      : `${problem.problem_index}: unsolved`;
+
+const problemPillStateLabel = (problem: ContestProblemResultRow): string => {
+  if (problem.solved_in_contest) return "solved in contest";
+  if (problem.upsolved) return "upsolved after contest";
+  return "unsolved";
+};
+
+const problemPillTitle = (problem: ContestProblemResultRow): string => {
+  const ratingPart = problem.rating === null ? "" : ` (${formatNumber(problem.rating)})`;
+  return `${problem.problem_index} — ${problem.name}${ratingPart}: ${problemPillStateLabel(problem)}`;
+};
+
+const ProblemPill = ({ problem }: { problem: ContestProblemResultRow }) => {
+  const state = problemPillState(problem);
+  const tier = ratingTitle(problem.rating);
 
   return (
-    <a class={`contest-problem-pill ${state}`} href={problem.url} rel="noreferrer" target="_blank" title={title}>
-      {problem.problem_index}
+    <a class={`contest-problem-pill ${state}`} href={problem.url} rel="noreferrer" target="_blank" title={problemPillTitle(problem)}>
+      <span class={`contest-problem-rating-stripe ${tier.className}`} aria-hidden="true"></span>
+      <span class="contest-problem-index">{problem.problem_index}</span>
     </a>
   );
 };
+
+const LegendProblemPill = ({
+  index,
+  state,
+  stripeClass,
+}: {
+  index: string;
+  state: "contest-solved" | "upsolved" | "unsolved";
+  stripeClass?: string;
+}) => (
+  <i class={`contest-problem-pill ${state}`}>
+    <span class={`contest-problem-rating-stripe ${stripeClass ?? "rank-unrated"}`} aria-hidden="true"></span>
+    <span class="contest-problem-index">{index}</span>
+  </i>
+);
 
 const isCatalogOnlyRow = (row: ContestResultRow): boolean =>
   row.rank === null
@@ -202,9 +228,9 @@ const ContestRow = ({ row }: { row: ContestResultRow }) => {
   return (
     <tr>
       <td class="nowrap">{formatDateFromSeconds(row.start_time_seconds)}</td>
-      <td>
+      <td class="contest-name-cell">
         <div class="contest-title-cell">
-          <a class="problem-name" href={contestHref} rel="noreferrer" target="_blank">
+          <a class="contest-name-link" href={contestHref} rel="noreferrer" target="_blank" title={row.contest_name}>
             {row.contest_name}
           </a>
           {row.derived_label ? <span class="contest-label">{row.derived_label}</span> : null}
@@ -292,9 +318,10 @@ const ContestsTableSection = ({ options }: { options: ContestsPageOptions }) => 
         </div>
         <ContestFilterButtons filters={filters} />
         <div class="contest-legend">
-          <span><i class="contest-problem-pill contest-solved">A</i> solved</span>
-          <span><i class="contest-problem-pill upsolved">B</i> upsolved</span>
-          <span><i class="contest-problem-pill unsolved">C</i> unsolved</span>
+          <span><LegendProblemPill index="A" state="contest-solved" /> solved</span>
+          <span><LegendProblemPill index="B" state="upsolved" /> upsolved</span>
+          <span><LegendProblemPill index="C" state="unsolved" /> unsolved</span>
+          <span><LegendProblemPill index="D" state="unsolved" stripeClass="rank-expert" /> stripe = problem rating</span>
         </div>
       </div>
       <table>

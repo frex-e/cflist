@@ -26,24 +26,30 @@ const seedCatalog = (db: DatabaseSync): void => {
   `,
   ).run();
 
-  for (const index of ["A", "B", "C"]) {
+  for (const row of [
+    { index: "A", name: "Problem A", rating: 800 },
+    { index: "B", name: "Problem B", rating: 1200 },
+    { index: "C", name: "Problem C", rating: 1600 },
+  ]) {
     db.prepare(
       `
       INSERT INTO problems (
         contest_id,
         problem_index,
         name,
+        rating,
         tags_json,
         url,
         raw_json,
         updated_at,
         canonical_id
-      ) VALUES (1100, @index, @name, '[]', @url, '{}', '2026-01-01T00:00:00.000Z', @canonicalId)
+      ) VALUES (1100, @index, @name, @rating, '[]', @url, '{}', '2026-01-01T00:00:00.000Z', @canonicalId)
     `,
     ).run({
-      index,
-      name: `Problem ${index}`,
-      url: `https://codeforces.com/contest/1100/problem/${index}`,
+      index: row.index,
+      name: row.name,
+      rating: row.rating,
+      url: `https://codeforces.com/contest/1100/problem/${row.index}`,
       canonicalId: randomUUID(),
     });
   }
@@ -195,6 +201,12 @@ test("contests page renders rating, performance, and problem outcome pills", asy
     assert.match(html, /contest-problem-pill contest-solved/);
     assert.match(html, /contest-problem-pill upsolved/);
     assert.match(html, /contest-problem-pill unsolved/);
+    assert.match(html, /contest-problem-rating-stripe rank-newbie/);
+    assert.match(html, /contest-problem-rating-stripe rank-pupil/);
+    assert.match(html, /contest-problem-rating-stripe rank-expert/);
+    assert.match(html, /contest-name-cell/);
+    assert.match(html, /contest-name-link/);
+    assert.match(html, /stripe = problem rating/);
     assert.match(html, />Contest history</);
     assert.match(html, /Showing 1-3 of 3/);
     assert.match(html, /3 catalog contests \(2 synced, 2 rated\) for inj/);

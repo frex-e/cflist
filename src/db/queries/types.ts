@@ -62,6 +62,7 @@ export type ContestProblemResultRow = {
   problem_index: string;
   name: string;
   url: string;
+  rating: number | null;
   solved_in_contest: number;
   upsolved: number;
   points: number | null;
