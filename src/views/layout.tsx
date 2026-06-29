@@ -55,9 +55,6 @@ export const layout = (options: {
             <a href="/contests" aria-current={activeNav === "contests" ? "page" : undefined}>
               Contests
             </a>
-            <a href="https://codeforces.com/problemset" rel="noreferrer" target="_blank">
-              Codeforces
-            </a>
             {options.user ? (
               <form class="sign-out-form" method="post" action="/sign-out">
                 <a href="/settings">{options.user.cfHandle}</a>
