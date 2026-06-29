@@ -61,6 +61,19 @@ export const getCachedRatingChanges = (db: Db, contestId: number): CfRatingChang
   return parseCachedJson<CfRatingChange[]>(cached?.raw_json);
 };
 
+export const invalidateContestCaches = (db: Db, contestId: number): void => {
+  db.prepare("DELETE FROM contest_standings_cache WHERE contest_id = @contestId").run({ contestId });
+  db.prepare("DELETE FROM contest_rating_changes_cache WHERE contest_id = @contestId").run({ contestId });
+  db.prepare("DELETE FROM contest_performance_cache WHERE contest_id = @contestId").run({ contestId });
+  db.prepare(
+    `
+    UPDATE user_contest_results
+    SET performance = NULL
+    WHERE contest_id = @contestId
+  `,
+  ).run({ contestId });
+};
+
 export const calculatePerformanceFromCache = (
   db: Db,
   userId: string,

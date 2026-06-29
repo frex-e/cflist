@@ -106,6 +106,7 @@ test("GET /settings shows account and data controls", async () => {
     const html = await response.text();
     assert.match(html, /Settings/);
     assert.match(html, /user@example\.com/);
+    assert.match(html, /Refresh contest details/);
     assert.match(html, /Reset Codeforces data/);
     assert.match(html, /Delete account/);
   });
@@ -158,6 +159,53 @@ test("POST /settings/reset-cf-data clears synced rows and keeps the account", as
       1,
     );
     assert.ok(db.prepare(`SELECT id FROM "user" WHERE id = @userId`).get({ userId }));
+  });
+});
+
+test("POST /settings/refresh-contest-details invalidates caches and queues hydration", async () => {
+  await withApp(async (app, db, cookie, userId) => {
+    seedUserCfData(db, userId);
+    db.prepare(
+      `
+      INSERT INTO contest_standings_cache (contest_id, raw_json, fetched_at)
+      VALUES (1, '{}', '2026-01-01T00:00:00.000Z')
+    `,
+    ).run();
+    db.prepare(
+      `
+      INSERT INTO contest_performance_cache (contest_id, user_id, performance, calculated_at)
+      VALUES (1, @userId, 2400, '2026-01-01T00:00:00.000Z')
+    `,
+    ).run({ userId });
+
+    const response = await app.request("/settings/refresh-contest-details", {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ confirmHandle: "tourist" }).toString(),
+    });
+
+    assert.equal(response.status, 303);
+    assert.match(response.headers.get("location") ?? "", /success=/);
+
+    const standingsCache = db.prepare("SELECT COUNT(*) AS count FROM contest_standings_cache").get() as { count: number };
+    assert.equal(standingsCache.count, 0);
+    const performance = db.prepare(
+      "SELECT performance FROM user_contest_results WHERE user_id = @userId AND contest_id = 1",
+    ).get({ userId }) as { performance: number | null };
+    assert.equal(performance.performance, null);
+    const job = db.prepare(
+      "SELECT status FROM contest_sync_jobs WHERE user_id = @userId AND contest_id = 1",
+    ).get({ userId }) as { status: string };
+    assert.ok(["queued", "running", "done"].includes(job.status));
+    assert.equal(
+      (db.prepare(`SELECT COUNT(*) AS count FROM user_problem_status WHERE user_id = @userId`).get({ userId }) as {
+        count: number;
+      }).count,
+      1,
+    );
   });
 });
 

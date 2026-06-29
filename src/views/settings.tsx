@@ -51,6 +51,16 @@ export const settingsPage = (options: SettingsPageOptions): string => {
           <section class="settings-section">
             <h2>Codeforces data</h2>
             <p>
+              Re-fetch contest standings, scores, and performance from Codeforces without clearing
+              your solved list or filter defaults.
+            </p>
+            <form class="settings-form" method="post" action="/settings/refresh-contest-details">
+              {confirmHandleField(handle)}
+              <button type="submit" class="button secondary">
+                Refresh contest details
+              </button>
+            </form>
+            <p>
               Delete your synced solved problems, contest history, and hydration state, then fetch
               everything again from Codeforces. Your handle and saved filter defaults are kept.
             </p>

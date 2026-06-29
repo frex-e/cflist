@@ -6,6 +6,7 @@ import { CodeforcesClient } from "../client.js";
 import { getCodeforcesClient } from "../shared-client.js";
 import type { CfRatingChange, CfContest } from "../types.js";
 import { getCachedStandings, backfillUserContestPerformances } from "./cache.js";
+import { collectContestsNeedingRefresh, invalidateContestCachesForContests } from "./contest-corrections.js";
 import { refreshProblemMetadata, syncCatalog } from "./catalog.js";
 import { drainContestSyncJobs, enqueueContestHydrationJobs } from "./contest-queue.js";
 import { recomputeExistingUpsolvesForUser } from "./contest-hydration.js";
@@ -27,12 +28,11 @@ const maybeSyncCatalog = async (db: Db, client: CodeforcesClient): Promise<void>
 const writeBasicContestResults = (
   db: Db,
   userId: string,
-  cfHandle: string,
   contestIds: number[],
   ratingsByContestId: Map<number, CfRatingChange>,
   checkedAt: string,
 ): void => {
-  const upsert = db.prepare(`
+  const upsertRated = db.prepare(`
     INSERT INTO user_contest_results (
       user_id,
       contest_id,
@@ -59,25 +59,64 @@ const writeBasicContestResults = (
       @checkedAt
     )
     ON CONFLICT(user_id, contest_id) DO UPDATE SET
-      rank = COALESCE(excluded.rank, user_contest_results.rank),
-      old_rating = COALESCE(excluded.old_rating, user_contest_results.old_rating),
-      new_rating = COALESCE(excluded.new_rating, user_contest_results.new_rating),
-      rating_delta = COALESCE(excluded.rating_delta, user_contest_results.rating_delta),
+      rank = excluded.rank,
+      old_rating = excluded.old_rating,
+      new_rating = excluded.new_rating,
+      rating_delta = excluded.rating_delta,
+      performance = CASE
+        WHEN excluded.old_rating IS NOT user_contest_results.old_rating
+          OR excluded.new_rating IS NOT user_contest_results.new_rating
+        THEN NULL
+        ELSE user_contest_results.performance
+      END,
+      last_checked_at = excluded.last_checked_at
+  `);
+  const upsertUnrated = db.prepare(`
+    INSERT INTO user_contest_results (
+      user_id,
+      contest_id,
+      rank,
+      points,
+      penalty,
+      participant_type,
+      old_rating,
+      new_rating,
+      rating_delta,
+      performance,
+      last_checked_at
+    ) VALUES (
+      @userId,
+      @contestId,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      @checkedAt
+    )
+    ON CONFLICT(user_id, contest_id) DO UPDATE SET
       last_checked_at = excluded.last_checked_at
   `);
 
   transaction(db, () => {
     for (const contestId of contestIds) {
       const ratingChange = ratingsByContestId.get(contestId);
-      upsert.run({
-        userId,
-        contestId,
-        rank: ratingChange?.rank ?? null,
-        oldRating: ratingChange?.oldRating ?? null,
-        newRating: ratingChange?.newRating ?? null,
-        ratingDelta: ratingChange ? ratingChange.newRating - ratingChange.oldRating : null,
-        checkedAt,
-      });
+      if (ratingChange) {
+        upsertRated.run({
+          userId,
+          contestId,
+          rank: ratingChange.rank,
+          oldRating: ratingChange.oldRating,
+          newRating: ratingChange.newRating,
+          ratingDelta: ratingChange.newRating - ratingChange.oldRating,
+          checkedAt,
+        });
+      } else {
+        upsertUnrated.run({ userId, contestId, checkedAt });
+      }
     }
   });
 };
@@ -129,6 +168,30 @@ const completedContestProblemCounts = (db: Db, userId: string): Map<number, numb
   return new Map(rows.map((row) => [row.contest_id, row.problem_count]));
 };
 
+export const refreshUserContestDetails = (
+  db: Db,
+  userId: string,
+  cfHandle: string,
+): number => {
+  const contestRows = db
+    .prepare(
+      `
+      SELECT contest_id
+      FROM user_contest_results
+      WHERE user_id = @userId
+      ORDER BY contest_id DESC
+    `,
+    )
+    .all({ userId }) as { contest_id: number }[];
+
+  const contestIds = contestRows.map((row) => row.contest_id);
+  invalidateContestCachesForContests(db, contestIds);
+
+  const jobs = contestIds.map((contestId, priority) => ({ contestId, priority }));
+  enqueueContestHydrationJobs(db, userId, cfHandle, jobs);
+  return contestIds.length;
+};
+
 export const syncUserStatus = async (
   db: Db,
   userId: string,
@@ -168,6 +231,14 @@ export const syncUserStatus = async (
 
     const sortedCandidateContestIds = [...candidateContestIds]
       .sort((a, b) => contestSortValue(contestsById.get(b), ratingsByContestId.get(b)) - contestSortValue(contestsById.get(a), ratingsByContestId.get(a)));
+    const refreshContestIds = collectContestsNeedingRefresh(
+      db,
+      userId,
+      ratingsByContestId,
+      sortedCandidateContestIds,
+    );
+    invalidateContestCachesForContests(db, refreshContestIds);
+    const refreshContestIdSet = new Set(refreshContestIds);
     const rankByContestId = new Map(sortedCandidateContestIds.map((contestId, rank) => [contestId, rank]));
     const problemCountsByContestId = completedContestProblemCounts(db, userId);
     const completedContestIds = new Set(
@@ -218,12 +289,17 @@ export const syncUserStatus = async (
       }
     });
 
-    writeBasicContestResults(db, userId, cfHandle, sortedCandidateContestIds, ratingsByContestId, checkedAt);
+    writeBasicContestResults(db, userId, sortedCandidateContestIds, ratingsByContestId, checkedAt);
     backfillUserContestPerformances(db, userId);
 
-    const hydrateRecentContestIds = recentContestIds.filter((contestId) =>
-      contestNeedsHydration(db, contestId, problemCountsByContestId.get(contestId) ?? 0),
-    );
+    const needsContestHydration = (contestId: number): boolean =>
+      refreshContestIdSet.has(contestId)
+      || contestNeedsHydration(db, contestId, problemCountsByContestId.get(contestId) ?? 0);
+
+    const hydrateRecentContestIds = recentContestIds.filter(needsContestHydration);
+    const forceRefreshOlderContestIds = sortedCandidateContestIds
+      .slice(MAX_CONTEST_RESULTS_ENQUEUE)
+      .filter((contestId) => refreshContestIdSet.has(contestId));
     const toHydrationJob = (contestId: number) => ({
       contestId,
       priority: rankByContestId.get(contestId)!,
@@ -238,7 +314,10 @@ export const syncUserStatus = async (
       db,
       userId,
       cfHandle,
-      backfillContestIds.map(toHydrationJob),
+      [
+        ...backfillContestIds.map(toHydrationJob),
+        ...forceRefreshOlderContestIds.map(toHydrationJob),
+      ],
     );
     const enqueuedContestResults = enqueuedRecent + enqueuedBackfill;
 
@@ -248,11 +327,15 @@ export const syncUserStatus = async (
 
     recomputeAllExistingUpsolves(db, userId, contestsById, accepted);
 
+    const refreshNote = refreshContestIds.length > 0
+      ? `; refreshed ${refreshContestIds.length} contest${refreshContestIds.length === 1 ? "" : "s"} after Codeforces updates`
+      : "";
+
     finishSyncRun(
       db,
       syncRunId,
       "success",
-      `Synced ${accepted.size} solved problems and queued ${enqueuedContestResults} contest detail refreshes for ${cfHandle}.`,
+      `Synced ${accepted.size} solved problems and queued ${enqueuedContestResults} contest detail refreshes for ${cfHandle}${refreshNote}.`,
       now(),
     );
   } catch (error) {

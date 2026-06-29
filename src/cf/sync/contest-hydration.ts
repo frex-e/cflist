@@ -279,6 +279,7 @@ export const hydrateUserContestResult = async (
   cfHandle: string,
   contestId: number,
   client: CodeforcesClient = getCodeforcesClient(),
+  options: { force?: boolean } = {},
 ): Promise<boolean> => {
   const contestsById = loadContestsById(db);
   const accepted = acceptedProblemsFromDb(db, userId);
@@ -312,7 +313,7 @@ export const hydrateUserContestResult = async (
       problem_count: number;
     } | undefined;
 
-  if (existing && existing.problem_count > 0) {
+  if (existing && existing.problem_count > 0 && !options.force) {
     const skipped = await shouldSkipFullHydration(
       db,
       client,

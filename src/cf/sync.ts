@@ -2,6 +2,7 @@ export {
   acceptedProblemsFromSubmissions,
   hydrateUserContestResult,
   kickContestSyncQueue,
+  refreshUserContestDetails,
   requeueFailedContestJobsForUser,
   refreshProblemMetadata,
   runContestSyncQueue,
