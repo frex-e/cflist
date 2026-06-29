@@ -47,6 +47,27 @@ const seedCatalog = (db: DatabaseSync): void => {
       canonicalId: randomUUID(),
     });
   }
+
+  for (const contestId of [1098, 1099]) {
+    db.prepare(
+      `
+      INSERT INTO problems (
+        contest_id,
+        problem_index,
+        name,
+        tags_json,
+        url,
+        raw_json,
+        updated_at,
+        canonical_id
+      ) VALUES (@contestId, 'A', 'Problem A', '[]', @url, '{}', '2026-01-01T00:00:00.000Z', @canonicalId)
+    `,
+    ).run({
+      contestId,
+      url: `https://codeforces.com/contest/${contestId}/problem/A`,
+      canonicalId: randomUUID(),
+    });
+  }
 };
 
 const withApp = async (fn: (app: ReturnType<typeof createApp>, db: DatabaseSync) => Promise<void>): Promise<void> => {
@@ -175,7 +196,8 @@ test("contests page renders rating, performance, and problem outcome pills", asy
     assert.match(html, /contest-problem-pill upsolved/);
     assert.match(html, /contest-problem-pill unsolved/);
     assert.match(html, />Contest history</);
-    assert.match(html, /Showing 1-2 of 2/);
+    assert.match(html, /Showing 1-3 of 3/);
+    assert.match(html, /3 catalog contests \(2 synced, 2 rated\) for inj/);
     assert.match(html, /id="contest-rows"/);
     assert.doesNotMatch(html, /Contest history \(/);
     assert.match(html, /data-contest-show="all"/);
@@ -326,6 +348,25 @@ const seedManyContestResults = (db: DatabaseSync, userId: string, count: number)
 
     db.prepare(
       `
+      INSERT INTO problems (
+        contest_id,
+        problem_index,
+        name,
+        tags_json,
+        url,
+        raw_json,
+        updated_at,
+        canonical_id
+      ) VALUES (@contestId, 'A', 'Problem A', '[]', @url, '{}', '2026-01-01T00:00:00.000Z', @canonicalId)
+    `,
+    ).run({
+      contestId,
+      url: `https://codeforces.com/contest/${contestId}/problem/A`,
+      canonicalId: randomUUID(),
+    });
+
+    db.prepare(
+      `
       INSERT INTO user_contest_results (
         user_id,
         contest_id,
@@ -354,18 +395,19 @@ test("contests page paginates table rows and appends more via fragment", async (
     const html = await response.text();
 
     assert.equal(response.status, 200);
-    assert.match(html, /Showing 1-50 of 55/);
+    assert.match(html, /Showing 1-50 of 58/);
     assert.match(html, /id="load-more"/);
     assert.match(html, /hx-get="\/contests\/fragment\?page=2&amp;append=1"/);
-    assert.match(html, /href="https:\/\/codeforces.com\/contest\/2049"/);
-    assert.doesNotMatch(html, /href="https:\/\/codeforces.com\/contest\/2050"/);
+    assert.match(html, /href="https:\/\/codeforces.com\/contest\/1100"/);
+    assert.match(html, /href="https:\/\/codeforces.com\/contest\/2046"/);
+    assert.doesNotMatch(html, /href="https:\/\/codeforces.com\/contest\/2047"/);
 
     const append = await app.request("/contests/fragment?append=1&page=2", { headers: { cookie } });
     const appendHtml = await append.text();
     assert.equal(append.status, 200);
     assert.match(appendHtml, /hx-swap-oob="beforeend:#contest-rows"/);
     assert.match(appendHtml, /href="https:\/\/codeforces.com\/contest\/2050"/);
-    assert.match(appendHtml, /Showing 1-55 of 55/);
+    assert.match(appendHtml, /Showing 1-58 of 58/);
   });
 });
 
@@ -444,5 +486,96 @@ test("contests page show filter paginates filtered totals from SQL", async () =>
     assert.match(html, />28 rated contests</);
     assert.match(html, /Showing 1-28 of 28/);
     assert.doesNotMatch(html, /hx-get="\/contests\/fragment\?show=rated&amp;page=2&amp;append=1"/);
+  });
+});
+
+test("contests page all filter shows catalog-only contests with unsolved pills", async () => {
+  await withApp(async (app, db) => {
+    const cookie = await signUp(app, db);
+    const user = db.prepare(`SELECT id FROM "user" WHERE email = 'user@example.com'`).get() as { id: string };
+
+    db.prepare(
+      `
+      INSERT INTO user_contest_results (
+        user_id,
+        contest_id,
+        rank,
+        points,
+        penalty,
+        participant_type,
+        old_rating,
+        new_rating,
+        rating_delta,
+        performance,
+        last_checked_at
+      ) VALUES (@userId, 1100, 42, 3, 180, 'CONTESTANT', 1900, 1950, 50, 2075, '2026-01-01T00:00:00.000Z')
+    `,
+    ).run({ userId: user.id });
+
+    const response = await app.request("/contests", { headers: { cookie } });
+    const html = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.match(html, /Showing 1-3 of 3/);
+    assert.match(html, /Codeforces Round 1099 \(Div\. 2\)/);
+    assert.match(html, /href="https:\/\/codeforces.com\/contest\/1099\/problem\/A"/);
+    assert.match(html, /contest-problem-pill unsolved/);
+    assert.match(html, /contest\/1099"[\s\S]*?<td class="num"><\/td><td class="num"><\/td>/);
+  });
+});
+
+test("contests page all filter paginates full catalog without user rows", async () => {
+  await withApp(async (app, db) => {
+    const cookie = await signUp(app, db);
+    const now = Math.floor(Date.now() / 1000);
+
+    for (let index = 0; index < 55; index += 1) {
+      const contestId = 4000 + index;
+      db.prepare(
+        `
+        INSERT INTO contests (
+          id,
+          name,
+          start_time_seconds,
+          duration_seconds,
+          derived_family,
+          derived_division,
+          derived_label,
+          raw_json,
+          updated_at
+        ) VALUES (@contestId, @name, @startTime, 7200, 'Codeforces Round', 'Div. 2', 'Codeforces Round (Div. 2)', '{}', '2026-01-01T00:00:00.000Z')
+      `,
+      ).run({
+        contestId,
+        name: `Catalog Contest ${contestId}`,
+        startTime: now - (index + 1) * 86_400,
+      });
+
+      db.prepare(
+        `
+        INSERT INTO problems (
+          contest_id,
+          problem_index,
+          name,
+          tags_json,
+          url,
+          raw_json,
+          updated_at,
+          canonical_id
+        ) VALUES (@contestId, 'A', 'Problem A', '[]', @url, '{}', '2026-01-01T00:00:00.000Z', @canonicalId)
+      `,
+      ).run({
+        contestId,
+        url: `https://codeforces.com/contest/${contestId}/problem/A`,
+        canonicalId: randomUUID(),
+      });
+    }
+
+    const response = await app.request("/contests", { headers: { cookie } });
+    const html = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.match(html, /Showing 1-50 of 58/);
+    assert.match(html, /<h1>Codeforces Contests<\/h1><p>58 catalog contests for inj<\/p>/);
   });
 });

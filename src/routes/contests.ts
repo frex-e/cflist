@@ -3,6 +3,7 @@ import type { AuthUser, AuthSession } from "../auth.js";
 import { backfillUserContestPerformances } from "../cf/sync/cache.js";
 import type { Db } from "../db/connection.js";
 import {
+  countCatalogContests,
   countUserContestResults,
   getContestSyncJobsByContest,
   listUserContestChartRows,
@@ -69,6 +70,7 @@ const contestsOptionsFor = (
 
   return {
     chartRows: includeCharts ? listUserContestChartRows(db, user.id) : [],
+    catalogCount: countCatalogContests(db),
     syncedCount: countUserContestResults(db, user.id),
     tableResult: {
       ...tableResult,

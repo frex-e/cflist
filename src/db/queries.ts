@@ -14,6 +14,7 @@ export {
   listProblems,
   listUserContestResults,
   listUserContestChartRows,
+  countCatalogContests,
   countUserContestResults,
   buildContestShowWhere,
   normalizeFilters,

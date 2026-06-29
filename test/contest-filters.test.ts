@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { buildContestShowWhere } from "../src/db/queries.js";
+import { buildContestShowWhere, countCatalogContests, listUserContestResults } from "../src/db/queries.js";
 import type { ContestResultRow } from "../src/db/queries.js";
+import { migrate } from "../src/db/migrate.js";
 import {
   contestTableFilterQuery,
   filterContestTableRows,
@@ -139,4 +142,280 @@ test("filterContestTableRows applies mutually exclusive show modes", () => {
     filterContestTableRows(rows, { show: "rated", page: 1, pageSize: 50 }).map((item) => item.contest_id),
     [1],
   );
+});
+
+test("listUserContestResults all mode lists every catalog contest with user stats when synced", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+
+  const userId = "user-catalog-all";
+  db.prepare(
+    `
+    INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt, cfHandle)
+    VALUES (@userId, 'Test User', 'user@example.com', 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'inj')
+  `,
+  ).run({ userId });
+
+  db.prepare(
+    `
+    INSERT INTO contests (
+      id,
+      name,
+      start_time_seconds,
+      derived_label,
+      raw_json,
+      updated_at
+    ) VALUES
+      (100, 'Oldest Catalog', 1000, NULL, '{}', '2026-01-01T00:00:00.000Z'),
+      (101, 'Synced Rated', 2000, NULL, '{}', '2026-01-01T00:00:00.000Z'),
+      (102, 'Synced Unrated', 3000, NULL, '{}', '2026-01-01T00:00:00.000Z'),
+      (103, 'Catalog Only', 4000, NULL, '{}', '2026-01-01T00:00:00.000Z')
+  `,
+  ).run();
+
+    db.prepare(
+      `
+      INSERT INTO problems (
+        contest_id,
+        problem_index,
+        name,
+        tags_json,
+        url,
+        raw_json,
+        updated_at,
+        canonical_id
+      ) VALUES (103, 'A', 'Problem A', '[]', 'https://codeforces.com/contest/103/problem/A', '{}', '2026-01-01T00:00:00.000Z', @canonicalId)
+    `,
+  ).run({ canonicalId: randomUUID() });
+
+  for (const contestId of [101, 102]) {
+    db.prepare(
+      `
+      INSERT INTO problems (
+        contest_id,
+        problem_index,
+        name,
+        tags_json,
+        url,
+        raw_json,
+        updated_at,
+        canonical_id
+      ) VALUES (@contestId, 'A', 'Problem A', '[]', @url, '{}', '2026-01-01T00:00:00.000Z', @canonicalId)
+    `,
+    ).run({
+      contestId,
+      url: `https://codeforces.com/contest/${contestId}/problem/A`,
+      canonicalId: randomUUID(),
+    });
+  }
+
+  for (const contestId of [101, 102]) {
+    db.prepare(
+      `
+      INSERT INTO user_contest_results (
+        user_id,
+        contest_id,
+        rank,
+        points,
+        last_checked_at
+      ) VALUES (@userId, @contestId, 10, 1, '2026-01-01T00:00:00.000Z')
+    `,
+    ).run({ userId, contestId });
+  }
+
+  db.prepare(
+    `
+    UPDATE user_contest_results
+    SET new_rating = 1500, rating_delta = 50
+    WHERE user_id = @userId AND contest_id = 101
+  `,
+  ).run({ userId });
+
+  try {
+    assert.equal(countCatalogContests(db), 3);
+
+    const { rows, total } = listUserContestResults(db, userId, { show: "all" });
+    assert.equal(total, 3);
+    assert.deepEqual(rows.map((row) => row.contest_id), [103, 102, 101]);
+
+    const catalogOnly = rows.find((row) => row.contest_id === 103);
+    assert.ok(catalogOnly);
+    assert.equal(catalogOnly.rank, null);
+    assert.equal(catalogOnly.points, null);
+    assert.equal(catalogOnly.new_rating, null);
+    assert.deepEqual(catalogOnly.problems.map((problem) => problem.problem_index), ["A"]);
+    assert.equal(catalogOnly.problems[0]?.upsolved, 0);
+    assert.equal(catalogOnly.problems[0]?.solved_in_contest, 0);
+
+    const syncedRated = rows.find((row) => row.contest_id === 101);
+    assert.ok(syncedRated);
+    assert.equal(syncedRated.rank, 10);
+    assert.equal(syncedRated.new_rating, 1500);
+
+    const filtered = listUserContestResults(db, userId, { show: "rated" });
+    assert.equal(filtered.total, 1);
+    assert.equal(filtered.rows[0]?.contest_id, 101);
+  } finally {
+    db.close();
+  }
+});
+
+test("listUserContestResults all mode excludes future catalog contests", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+
+  const userId = "user-future-filter";
+  db.prepare(
+    `
+    INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt, cfHandle)
+    VALUES (@userId, 'Test User', 'user@example.com', 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'inj')
+  `,
+  ).run({ userId });
+
+  const now = Math.floor(Date.now() / 1000);
+  const futureStart = now + 86_400;
+  db.prepare(
+    `
+    INSERT INTO contests (id, name, start_time_seconds, raw_json, updated_at)
+    VALUES
+      (200, 'Past Contest', @pastStart, '{}', '2026-01-01T00:00:00.000Z'),
+      (201, 'Future Contest', @futureStart, '{}', '2026-01-01T00:00:00.000Z'),
+      (202, 'Past Without Problems', @pastStart, '{}', '2026-01-01T00:00:00.000Z')
+  `,
+  ).run({ pastStart: now - 86_400, futureStart });
+
+  db.prepare(
+    `
+    INSERT INTO problems (
+      contest_id,
+      problem_index,
+      name,
+      tags_json,
+      url,
+      raw_json,
+      updated_at,
+      canonical_id
+    ) VALUES (200, 'A', 'Problem A', '[]', 'https://codeforces.com/contest/200/problem/A', '{}', '2026-01-01T00:00:00.000Z', @canonicalId)
+  `,
+  ).run({ canonicalId: randomUUID() });
+
+  try {
+    assert.equal(countCatalogContests(db), 1);
+
+    const { rows, total } = listUserContestResults(db, userId, { show: "all" });
+    assert.equal(total, 1);
+    assert.deepEqual(rows.map((row) => row.contest_id), [200]);
+  } finally {
+    db.close();
+  }
+});
+
+test("listUserContestResults all mode falls back to catalog problems for stub user rows", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+
+  const userId = "user-stub-catalog";
+  db.prepare(
+    `
+    INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt, cfHandle)
+    VALUES (@userId, 'Test User', 'user@example.com', 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'inj')
+  `,
+  ).run({ userId });
+
+  db.prepare(
+    `
+    INSERT INTO contests (id, name, start_time_seconds, raw_json, updated_at)
+    VALUES (500, 'Stub Contest', 5000, '{}', '2026-01-01T00:00:00.000Z')
+  `,
+  ).run();
+
+  db.prepare(
+    `
+    INSERT INTO problems (
+      contest_id,
+      problem_index,
+      name,
+      tags_json,
+      url,
+      raw_json,
+      updated_at,
+      canonical_id
+    ) VALUES
+      (500, 'A', 'Problem A', '[]', 'https://codeforces.com/contest/500/problem/A', '{}', '2026-01-01T00:00:00.000Z', @canonicalA),
+      (500, 'B', 'Problem B', '[]', 'https://codeforces.com/contest/500/problem/B', '{}', '2026-01-01T00:00:00.000Z', @canonicalB)
+  `,
+  ).run({ canonicalA: randomUUID(), canonicalB: randomUUID() });
+
+  db.prepare(
+    `
+    INSERT INTO user_contest_results (user_id, contest_id, last_checked_at)
+    VALUES (@userId, 500, '2026-01-01T00:00:00.000Z')
+  `,
+  ).run({ userId });
+
+  try {
+    const { rows } = listUserContestResults(db, userId, { show: "all" });
+    assert.equal(rows.length, 1);
+    assert.deepEqual(rows[0]?.problems.map((problem) => problem.problem_index), ["A", "B"]);
+    assert.equal(rows[0]?.problems[0]?.solved_in_contest, 0);
+  } finally {
+    db.close();
+  }
+});
+
+test("listUserContestResults all mode sorts catalog problem pills by index", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+
+  const userId = "user-problem-order";
+  db.prepare(
+    `
+    INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt, cfHandle)
+    VALUES (@userId, 'Test User', 'user@example.com', 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'inj')
+  `,
+  ).run({ userId });
+
+  db.prepare(
+    `
+    INSERT INTO contests (id, name, start_time_seconds, raw_json, updated_at)
+    VALUES (600, 'Ordered Round', 1000, '{}', '2026-01-01T00:00:00.000Z')
+  `,
+  ).run();
+
+  for (const index of ["F", "E", "D", "C", "B", "A", "I1", "I2"]) {
+    db.prepare(
+      `
+      INSERT INTO problems (
+        contest_id,
+        problem_index,
+        name,
+        tags_json,
+        url,
+        raw_json,
+        updated_at,
+        canonical_id
+      ) VALUES (600, @index, @name, '[]', @url, '{}', '2026-01-01T00:00:00.000Z', @canonicalId)
+    `,
+    ).run({
+      index,
+      name: `Problem ${index}`,
+      url: `https://codeforces.com/contest/600/problem/${index}`,
+      canonicalId: randomUUID(),
+    });
+  }
+
+  try {
+    const { rows } = listUserContestResults(db, userId, { show: "all" });
+    assert.equal(rows.length, 1);
+    assert.deepEqual(
+      rows[0]?.problems.map((problem) => problem.problem_index),
+      ["A", "B", "C", "D", "E", "F", "I1", "I2"],
+    );
+  } finally {
+    db.close();
+  }
 });

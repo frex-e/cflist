@@ -22,6 +22,7 @@ import { contestPageNav } from "./contests/url.js";
 
 export type ContestsPageOptions = {
   chartRows: ContestResultRow[];
+  catalogCount: number;
   syncedCount: number;
   tableResult: ContestListResult;
   filters: ContestTableFilters;
@@ -156,17 +157,17 @@ const ProblemPill = ({ problem }: { problem: ContestProblemResultRow }) => {
   );
 };
 
-const ProblemPillsCell = ({ row }: { row: ContestResultRow }) => {
-  if (row.problems.length) {
-    return (
-      <div class="contest-problems">
-        {row.problems.map((problem) => (
-          <ProblemPill problem={problem} />
-        ))}
-      </div>
-    );
-  }
+const isCatalogOnlyRow = (row: ContestResultRow): boolean =>
+  row.rank === null
+  && row.points === null
+  && row.participant_type === null
+  && row.old_rating === null
+  && row.new_rating === null
+  && row.rating_delta === null
+  && row.performance === null
+  && !row.hydration_status;
 
+const ProblemPillsCell = ({ row }: { row: ContestResultRow }) => {
   if (row.hydration_status === "queued" || row.hydration_status === "running") {
     return <span class="muted">Loading…</span>;
   }
@@ -178,6 +179,18 @@ const ProblemPillsCell = ({ row }: { row: ContestResultRow }) => {
       </span>
     );
   }
+
+  if (row.problems.length) {
+    return (
+      <div class="contest-problems">
+        {row.problems.map((problem) => (
+          <ProblemPill problem={problem} />
+        ))}
+      </div>
+    );
+  }
+
+  if (isCatalogOnlyRow(row)) return null;
 
   return <span class="muted">Details pending</span>;
 };
@@ -212,16 +225,22 @@ const ContestRow = ({ row }: { row: ContestResultRow }) => {
 const ContestsTableBody = ({
   rows,
   filters,
+  catalogCount,
   hasSyncedContests,
 }: {
   rows: ContestResultRow[];
   filters: ContestTableFilters;
+  catalogCount: number;
   hasSyncedContests: boolean;
 }) => {
   if (!rows.length) {
-    const message = hasSyncedContests && filters.show !== "all"
-      ? "No contests match the current filter."
-      : "Run a sync to fetch recent contest history.";
+    const message = filters.show === "all"
+      ? catalogCount > 0
+        ? "No contests on this page."
+        : "Run a sync to load the contest catalog."
+      : hasSyncedContests
+        ? "No contests match the current filter."
+        : "Run a sync to fetch recent contest history.";
 
     return (
       <tr>
@@ -234,10 +253,10 @@ const ContestsTableBody = ({
 };
 
 const CONTEST_SHOW_OPTIONS: { mode: ContestTableFilters["show"]; label: string; title: string }[] = [
-  { mode: "all", label: "All", title: "Show every synced contest" },
-  { mode: "upsolved", label: "Upsolved", title: "Hide contests with no participation and no upsolves" },
+  { mode: "all", label: "All", title: "Show every catalog contest" },
   { mode: "participated", label: "Participated", title: "Hide upsolve-only contests" },
   { mode: "rated", label: "Rated", title: "Show only contests that changed your rating" },
+  { mode: "upsolved", label: "Upsolved", title: "Hide contests with no participation and no upsolves" },
 ];
 
 const ContestFilterButtons = ({ filters }: { filters: ContestTableFilters }) => (
@@ -259,7 +278,7 @@ const ContestFilterButtons = ({ filters }: { filters: ContestTableFilters }) => 
 );
 
 const ContestsTableSection = ({ options }: { options: ContestsPageOptions }) => {
-  const { tableResult, filters, syncedCount } = options;
+  const { tableResult, filters, catalogCount, syncedCount } = options;
   const nav = contestPageNav(filters, tableResult.total);
 
   return (
@@ -295,6 +314,7 @@ const ContestsTableSection = ({ options }: { options: ContestsPageOptions }) => 
           <ContestsTableBody
             rows={tableResult.rows}
             filters={filters}
+            catalogCount={catalogCount}
             hasSyncedContests={syncedCount > 0}
           />
         </tbody>
@@ -327,14 +347,32 @@ export const contestsAppendFragment = (options: ContestsPageOptions): string => 
   );
 };
 
+const contestsSubtitle = (options: ContestsPageOptions): string => {
+  const { catalogCount, syncedCount, chartRows, user } = options;
+  const ratedCount = chartRows.length;
+  const handle = user.cfHandle;
+
+  if (catalogCount > 0) {
+    if (syncedCount > 0) {
+      return ratedCount
+        ? `${formatNumber(catalogCount)} catalog contests (${formatNumber(syncedCount)} synced, ${formatNumber(ratedCount)} rated) for ${handle}`
+        : `${formatNumber(catalogCount)} catalog contests (${formatNumber(syncedCount)} synced) for ${handle}`;
+    }
+    return `${formatNumber(catalogCount)} catalog contests for ${handle}`;
+  }
+
+  if (syncedCount > 0) {
+    return ratedCount
+      ? `${formatNumber(syncedCount)} synced contests (${formatNumber(ratedCount)} rated) for ${handle}`
+      : `${formatNumber(syncedCount)} synced contests for ${handle}`;
+  }
+
+  return `No synced contests for ${handle}`;
+};
+
 export const contestsPage = (options: ContestsPageOptions): string => {
   const scale = chartScale(options.chartRows);
-  const ratedCount = options.chartRows.length;
-  const subtitle = options.syncedCount
-    ? ratedCount
-      ? `${formatNumber(options.syncedCount)} synced contests (${formatNumber(ratedCount)} rated) for ${options.user.cfHandle}`
-      : `${formatNumber(options.syncedCount)} synced contests for ${options.user.cfHandle}`
-    : `No synced contests for ${options.user.cfHandle}`;
+  const subtitle = contestsSubtitle(options);
 
   return layout({
     title: "CFList Contests",

@@ -28,9 +28,9 @@ Server-rendered Hono TSX views under `src/views/`. `filters.js` loads only on `/
 
 ## Contests page
 
-`/contests` shows recent synced contest rows with rank, score, rating delta, estimated performance, and per-problem solve/upsolve pills.
+`/contests` shows contest rows with rank, score, rating delta, estimated performance, and per-problem solve/upsolve pills when synced.
 
-- Table show control is a 4-way segment: `All`, `Upsolved`, `Participated`, `Rated` (broad → narrow). URL param `show=upsolved|participated|rated` (`All` omits it). Upsolved keeps participated contests and any contest with upsolved problems; Participated hides upsolve-only rows; Rated keeps only rating-changing contests. Rating/performance charts always plot every rated contest (`new_rating IS NOT NULL`), independent of table filter and pagination.
+- Table show control is a 4-way segment: `All`, `Participated`, `Rated`, `Upsolved` (lexicographic). URL param `show=upsolved|participated|rated` (`All` omits it). `All` lists past catalog contests that have at least one problemset problem (`problems` row), LEFT JOINing user standings when present; catalog-only rows show unsolved problem pills from the problems index. Upsolved/Participated/Rated stay limited to synced user history. Rating/performance charts always plot every rated contest (`new_rating IS NOT NULL`), independent of table filter and pagination.
 - HTMX infinite-scroll sentinel appends `/contests/fragment?append=1` pages at the bottom (fixed page size 50). `infinite-scroll.js` loads the next page when the user scrolls it into view (one page per scroll position, no auto-cascade).
 - Cumulative table label during scroll (e.g. `Showing 1-50 of 237`). Filter changes reset to page 1.
 

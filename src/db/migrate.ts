@@ -220,6 +220,7 @@ const MIGRATION_1_SQL = `
     CREATE INDEX IF NOT EXISTS idx_problems_solved_count ON problems(solved_count);
     CREATE INDEX IF NOT EXISTS idx_problem_tags_tag ON problem_tags(tag);
     CREATE INDEX IF NOT EXISTS idx_contests_derived ON contests(derived_family, derived_division);
+    CREATE INDEX IF NOT EXISTS idx_contests_start_time ON contests(start_time_seconds DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_user_status_user_solved ON user_problem_status(user_id, solved);
     CREATE INDEX IF NOT EXISTS idx_user_contest_results_user ON user_contest_results(user_id, contest_id DESC);
     CREATE INDEX IF NOT EXISTS idx_user_contest_problem_results_user ON user_contest_problem_results(user_id, contest_id);
@@ -635,6 +636,12 @@ const applyIntegrityMigration = (db: Db): void => {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_problems_canonical_id ON problems(canonical_id)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_problems_contest_name ON problems(contest_id, name)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_problems_needs_metadata ON problems(updated_at) WHERE rating IS NULL`);
+  if (tableExists(db, "contests")) {
+    const contestColumns = db.prepare("PRAGMA table_info(contests)").all() as { name: string }[];
+    if (contestColumns.some((column) => column.name === "start_time_seconds")) {
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_contests_start_time ON contests(start_time_seconds DESC, id DESC)`);
+    }
+  }
   if (tableExists(db, "user_problem_status")) {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_user_status_user_solved ON user_problem_status(user_id, solved)`);
   }
