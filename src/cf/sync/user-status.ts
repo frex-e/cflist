@@ -402,6 +402,7 @@ export const syncUserStatus = async (
       await drainContestSyncJobs(db, client, enqueuedRecent + enqueuedPairedProbes);
     }
 
+    accepted = expandAcceptedProblemsByCanonicalId(db, exactAccepted);
     recomputeAllExistingUpsolves(db, userId, contestsById, accepted);
 
     const refreshNote = refreshContestIds.length > 0
