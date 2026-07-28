@@ -1,7 +1,11 @@
 import { transaction, type Db } from "../../db/connection.js";
 import { finishSyncRun, startSyncRun } from "../../db/writes/sync-runs.js";
 import { shouldRefreshProblemMetadata, shouldSyncCatalog } from "../../db/queries/catalog-sync.js";
-import { acceptedProblemsFromSubmissions, type AcceptedProblem } from "../accepted-problems.js";
+import {
+  acceptedProblemsFromSubmissions,
+  expandAcceptedProblemsByCanonicalId,
+  type AcceptedProblem,
+} from "../accepted-problems.js";
 import { CodeforcesClient } from "../client.js";
 import { getCodeforcesClient } from "../shared-client.js";
 import type { CfRatingChange, CfContest } from "../types.js";
@@ -209,7 +213,8 @@ export const syncUserStatus = async (
 
     let contestsById = loadContestsById(db);
     const submissions = await client.userStatus(cfHandle);
-    let accepted = acceptedProblemsFromSubmissions(submissions, contestsById);
+    let exactAccepted = acceptedProblemsFromSubmissions(submissions, contestsById);
+    let accepted = expandAcceptedProblemsByCanonicalId(db, exactAccepted);
     const ratingHistory = await client.userRating(cfHandle);
     const ratingsByContestId = new Map(ratingHistory.map((change) => [change.contestId, change]));
     const candidateContestIds = new Set(ratingHistory.map((change) => change.contestId));
@@ -220,7 +225,8 @@ export const syncUserStatus = async (
     if (missingContestIds(candidateContestIds, contestsById).length > 0) {
       await syncCatalog(db, client);
       contestsById = loadContestsById(db);
-      accepted = acceptedProblemsFromSubmissions(submissions, contestsById);
+      exactAccepted = acceptedProblemsFromSubmissions(submissions, contestsById);
+      accepted = expandAcceptedProblemsByCanonicalId(db, exactAccepted);
       for (const item of accepted.values()) {
         candidateContestIds.add(item.contestId);
       }
@@ -276,7 +282,7 @@ export const syncUserStatus = async (
     `);
     transaction(db, () => {
       clearStatus.run({ userId });
-      for (const item of accepted.values()) {
+      for (const item of exactAccepted.values()) {
         insertStatus.run({
           userId,
           contestId: item.contestId,

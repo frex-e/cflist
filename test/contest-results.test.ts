@@ -57,6 +57,26 @@ test("deriveContestProblemResult marks upsolve from accepted after contest end",
   assert.equal(result.upsolved, 1);
 });
 
+test("deriveContestProblemResult marks accepted during contest without standings as solved", () => {
+  const result = deriveContestProblemResult(
+    problem,
+    undefined,
+    0,
+    {
+      contestId: 100,
+      problemIndex: "A",
+      firstSubmissionId: 1,
+      firstAcceptedAtSeconds: contest.startTimeSeconds! + 60,
+      acceptedCount: 1,
+    },
+    contest,
+  );
+
+  assert.equal(result.solvedInContest, 1);
+  assert.equal(result.upsolved, 0);
+  assert.equal(result.bestSubmissionTimeSeconds, 60);
+});
+
 test("isUpsolved respects solved-in-contest flag", () => {
   const endTime = contest.startTimeSeconds! + contest.durationSeconds!;
   assert.equal(

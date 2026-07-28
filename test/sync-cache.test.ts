@@ -201,6 +201,73 @@ class SubmissionOnlyClient extends FakeClient {
   }
 }
 
+class SharedDivisionClient extends SubmissionOnlyClient {
+  async contests(): Promise<CfContest[]> {
+    return [
+      {
+        id: 201,
+        name: "Codeforces Round 201 (Div. 1)",
+        phase: "FINISHED",
+        startTimeSeconds: 1000,
+        durationSeconds: 7200,
+      },
+      {
+        id: 202,
+        name: "Codeforces Round 201 (Div. 2)",
+        phase: "FINISHED",
+        startTimeSeconds: 1000,
+        durationSeconds: 7200,
+      },
+    ];
+  }
+
+  async problemset(): Promise<CfProblemset> {
+    return {
+      problems: [
+        { contestId: 201, index: "A", name: "Shared Task", tags: [] },
+        { contestId: 202, index: "C", name: "Shared Task", tags: [] },
+        { contestId: 202, index: "D", name: "Different Task", tags: [] },
+      ],
+      problemStatistics: [
+        { contestId: 201, index: "A", solvedCount: 100 },
+        { contestId: 202, index: "C", solvedCount: 100 },
+        { contestId: 202, index: "D", solvedCount: 50 },
+      ],
+    };
+  }
+
+  async userStatus(): Promise<CfSubmission[]> {
+    return [
+      {
+        id: 1,
+        contestId: 201,
+        creationTimeSeconds: 1200,
+        verdict: "OK",
+        problem: { contestId: 201, index: "A", name: "Shared Task", tags: [] },
+      },
+    ];
+  }
+
+  async contestStandings(contestId = 201): Promise<CfStandings> {
+    const isDiv1 = contestId === 201;
+    return {
+      contest: {
+        id: contestId,
+        name: `Codeforces Round 201 (${isDiv1 ? "Div. 1" : "Div. 2"})`,
+        startTimeSeconds: 1000,
+        durationSeconds: 7200,
+      },
+      problems: isDiv1
+        ? [{ contestId: 201, index: "A", name: "Shared Task", tags: [] }]
+        : [
+            { contestId: 202, index: "C", name: "Shared Task", tags: [] },
+            { contestId: 202, index: "D", name: "Different Task", tags: [] },
+          ],
+      rows: [],
+    };
+  }
+}
+
 class UpsolveOnlyClient extends FakeClient {
   async userStatus(): Promise<CfSubmission[]> {
     return [
@@ -853,6 +920,52 @@ test("user sync includes upsolve-only contests discovered from accepted submissi
 
     assert.equal(contestRows.count, 1);
     assert.equal(upsolved.upsolved, 1);
+  } finally {
+    db.close();
+    syncState.userRunning.clear();
+    syncState.contestQueueRunning = false;
+  }
+});
+
+test("user sync marks shared Div. 1 and Div. 2 placements solved", async () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+  insertUser(db);
+  syncState.catalogRunning = false;
+  syncState.userRunning.clear();
+  syncState.contestQueueRunning = false;
+
+  try {
+    const client = new SharedDivisionClient();
+    await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
+
+    const exactStatuses = db
+      .prepare(`SELECT contest_id, problem_index FROM user_problem_status ORDER BY contest_id`)
+      .all() as { contest_id: number; problem_index: string }[];
+    const contestResults = db
+      .prepare(
+        `
+        SELECT contest_id, problem_index, solved_in_contest, upsolved
+        FROM user_contest_problem_results
+        WHERE solved_in_contest = 1 OR upsolved = 1
+        ORDER BY contest_id
+      `,
+      )
+      .all() as {
+        contest_id: number;
+        problem_index: string;
+        solved_in_contest: number;
+        upsolved: number;
+      }[];
+
+    assert.deepEqual(exactStatuses.map((row) => ({ ...row })), [
+      { contest_id: 201, problem_index: "A" },
+    ]);
+    assert.deepEqual(contestResults.map((row) => ({ ...row })), [
+      { contest_id: 201, problem_index: "A", solved_in_contest: 1, upsolved: 0 },
+      { contest_id: 202, problem_index: "C", solved_in_contest: 1, upsolved: 0 },
+    ]);
   } finally {
     db.close();
     syncState.userRunning.clear();

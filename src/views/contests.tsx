@@ -280,9 +280,9 @@ const ContestsTableBody = ({
 
 const CONTEST_SHOW_OPTIONS: { mode: ContestTableFilters["show"]; label: string; title: string }[] = [
   { mode: "all", label: "All", title: "Show every catalog contest" },
+  { mode: "upsolved", label: "Upsolved", title: "Hide contests with no participation and no upsolves" },
   { mode: "participated", label: "Participated", title: "Hide upsolve-only contests" },
   { mode: "rated", label: "Rated", title: "Show only contests that changed your rating" },
-  { mode: "upsolved", label: "Upsolved", title: "Hide contests with no participation and no upsolves" },
 ];
 
 const ContestFilterButtons = ({ filters }: { filters: ContestTableFilters }) => (
