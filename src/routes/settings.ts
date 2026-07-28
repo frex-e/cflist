@@ -14,7 +14,7 @@ type SettingsVariables = {
 
 type SettingsRouteDeps = {
   db: Db;
-  proxyAuthSignOut: (cookie: string | undefined, origin: string) => Promise<Response>;
+  proxyAuthSignOut: (cookie: string | undefined) => Promise<Response>;
   redirectWithAuthCookies: (authResponse: Response, location: string) => Response;
   runSyncInBackground: (user: AuthUser) => boolean;
 };
@@ -108,7 +108,7 @@ export const registerSettingsRoutes = (
     deleteUserAccount(deps.db, user.id);
     syncState.userRunning.delete(user.id);
 
-    const signOutResponse = await deps.proxyAuthSignOut(c.req.header("cookie"), new URL(c.req.url).origin);
+    const signOutResponse = await deps.proxyAuthSignOut(c.req.header("cookie"));
     return deps.redirectWithAuthCookies(signOutResponse, "/sign-in");
   });
 };

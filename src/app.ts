@@ -137,10 +137,8 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
     endpoint: "sign-in/email" | "sign-up/email",
     body: URLSearchParams,
     cookie?: string,
-    origin?: string,
   ): Promise<Response> => {
-    const baseOrigin = origin ?? appConfig.authBaseURL;
-    const url = new URL(`/api/auth/${endpoint}`, baseOrigin);
+    const url = new URL(`/api/auth/${endpoint}`, appConfig.authBaseURL);
     const headers = new Headers({
       "content-type": "application/x-www-form-urlencoded",
       origin: url.origin,
@@ -156,9 +154,8 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
     );
   };
 
-  const proxyAuthSignOut = async (cookie?: string, origin?: string): Promise<Response> => {
-    const baseOrigin = origin ?? appConfig.authBaseURL;
-    const url = new URL("/api/auth/sign-out", baseOrigin);
+  const proxyAuthSignOut = async (cookie?: string): Promise<Response> => {
+    const url = new URL("/api/auth/sign-out", appConfig.authBaseURL);
     const headers = new Headers({ origin: url.origin });
     if (cookie) headers.set("cookie", cookie);
 
@@ -170,9 +167,8 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
     );
   };
 
-  const startGitHubSignIn = async (returnTo: string, origin?: string): Promise<Response> => {
-    const baseOrigin = origin ?? appConfig.authBaseURL;
-    const url = new URL("/api/auth/sign-in/social", baseOrigin);
+  const startGitHubSignIn = async (returnTo: string): Promise<Response> => {
+    const url = new URL("/api/auth/sign-in/social", appConfig.authBaseURL);
     const headers = new Headers({
       "content-type": "application/json",
       origin: url.origin,

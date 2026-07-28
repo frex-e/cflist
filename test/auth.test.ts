@@ -8,6 +8,7 @@ import { migrate } from "../src/db/migrate.js";
 type AppOptions = {
   github?: boolean;
   githubOnly?: boolean;
+  authBaseURL?: string;
 };
 
 const withApp = async (
@@ -23,7 +24,7 @@ const withApp = async (
   try {
     const app = createApp(db, {
       publicRoot: "src/public",
-      authBaseURL: "http://localhost",
+      authBaseURL: options.authBaseURL ?? "http://localhost",
       authSecret: "test-secret-with-enough-length-32",
       authTrustedOrigins: ["http://localhost"],
       skipInitialSync: true,
@@ -101,6 +102,24 @@ test("sign out clears the session cookie and invalidates the session", async () 
   });
 });
 
+test("sign out clears secure session cookies behind an HTTP deployment proxy", async () => {
+  await withApp(async (app, db) => {
+    const cookie = await signUp(app, db);
+    assert.match(cookie, /__Secure-better-auth\.session_token=/);
+
+    const signOutResponse = await app.request("/sign-out", {
+      method: "POST",
+      headers: { cookie },
+    });
+
+    assert.equal(signOutResponse.status, 303);
+    assert.match(
+      signOutResponse.headers.get("set-cookie") ?? "",
+      /__Secure-better-auth\.session_token=; Max-Age=0/,
+    );
+  }, { authBaseURL: "https://cflist.example" });
+});
+
 test("GET /sign-in/github redirects to GitHub when configured", async () => {
   await withApp(async (app) => {
     const response = await app.request("/sign-in/github?returnTo=/problems");
@@ -161,6 +180,16 @@ test("complete profile sets cfHandle and unlocks protected pages", async () => {
 
     const problemsResponse = await app.request("/problems", { headers: { cookie } });
     assert.equal(problemsResponse.status, 200);
+  });
+});
+
+test("complete profile form posts to the complete-profile route", async () => {
+  await withApp(async (app, db) => {
+    const cookie = await signUpWithoutCfHandle(app, db);
+    const response = await app.request("/complete-profile", { headers: { cookie } });
+
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), /action="\/complete-profile"/);
   });
 });
 

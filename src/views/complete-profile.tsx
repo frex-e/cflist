@@ -8,6 +8,7 @@ type HandleSettingsPageOptions = {
   returnTo?: string;
   user: AuthUser;
   currentHandle?: string;
+  formAction?: string;
   title?: string;
   heading?: string;
   description?: string;
@@ -28,7 +29,7 @@ export const handleSettingsPage = (options: HandleSettingsPageOptions): string =
             "Enter your Codeforces handle to sync solved problems and contest history."}
         </p>
         {options.error ? <p class="form-error">{options.error}</p> : ""}
-        <form class="auth-form" method="post" action="/settings/handle">
+        <form class="auth-form" method="post" action={options.formAction ?? "/settings/handle"}>
           <input type="hidden" name="returnTo" value={returnTo} />
           <label>
             Codeforces handle
@@ -65,4 +66,5 @@ export const completeProfilePage = (options: {
     heading: "Codeforces handle",
     description: "Enter your Codeforces handle to sync solved problems and contest history.",
     currentHandle: "",
+    formAction: "/complete-profile",
   });

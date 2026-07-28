@@ -34,10 +34,9 @@ type AuthRouteDeps = {
     endpoint: "sign-in/email" | "sign-up/email",
     body: URLSearchParams,
     cookie: string | undefined,
-    origin: string,
   ) => Promise<Response>;
-  proxyAuthSignOut: (cookie: string | undefined, origin: string) => Promise<Response>;
-  startGitHubSignIn: (returnTo: string, origin: string) => Promise<Response>;
+  proxyAuthSignOut: (cookie: string | undefined) => Promise<Response>;
+  startGitHubSignIn: (returnTo: string) => Promise<Response>;
   authErrorRedirect: (response: Response, fallback: string) => Promise<Response>;
   redirectWithAuthCookies: (authResponse: Response, location: string) => Response;
   maybeStartInitialSync: (user: AuthUser) => boolean;
@@ -95,7 +94,6 @@ export const registerAuthRoutes = (
       "sign-in/email",
       formToBody(form, ["email", "password"]),
       c.req.header("cookie"),
-      new URL(c.req.url).origin,
     );
     if (!response.ok) return deps.authErrorRedirect(response, "/sign-in");
     return deps.redirectWithAuthCookies(response, returnTo);
@@ -106,7 +104,7 @@ export const registerAuthRoutes = (
     if (c.get("user")) return c.redirect(safeReturnToWithDefault(c.req.query("returnTo")));
 
     const returnTo = safeReturnToWithDefault(c.req.query("returnTo"));
-    const response = await deps.startGitHubSignIn(returnTo, new URL(c.req.url).origin);
+    const response = await deps.startGitHubSignIn(returnTo);
     const body = (await response.json().catch(() => undefined)) as { url?: string } | undefined;
     if (!response.ok || !body?.url) {
       return c.redirect(`/sign-in?error=${encodeURIComponent("GitHub sign-in failed")}`);
@@ -146,7 +144,6 @@ export const registerAuthRoutes = (
       "sign-up/email",
       formToBody(form, ["name", "email", "password", "cfHandle"]),
       c.req.header("cookie"),
-      new URL(c.req.url).origin,
     );
     if (!response.ok) return deps.authErrorRedirect(response, "/sign-up");
     return deps.redirectWithAuthCookies(response, returnTo);
@@ -227,7 +224,7 @@ export const registerAuthRoutes = (
   });
 
   app.post("/sign-out", async (c) => {
-    const response = await deps.proxyAuthSignOut(c.req.header("cookie"), new URL(c.req.url).origin);
+    const response = await deps.proxyAuthSignOut(c.req.header("cookie"));
     return deps.redirectWithAuthCookies(response, "/sign-in");
   });
 };
