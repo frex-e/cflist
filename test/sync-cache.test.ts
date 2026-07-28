@@ -159,6 +159,19 @@ class FakeClient {
   }
 }
 
+class OmittedAcceptedProblemClient extends FakeClient {
+  async problemset(): Promise<CfProblemset> {
+    return {
+      problems: [
+        { contestId: 100, index: "A", name: "A", tags: [] },
+      ],
+      problemStatistics: [
+        { contestId: 100, index: "A", solvedCount: 100 },
+      ],
+    };
+  }
+}
+
 class SubmissionOnlyClient extends FakeClient {
   async userRating(): Promise<CfRatingChange[]> {
     return [];
@@ -1013,6 +1026,41 @@ test("user sync imports standings-only contest problems before writing contest r
     });
     assert.equal(problemsetProblem.solved_count, 50);
     assert.equal(upsolved.upsolved, 1);
+  } finally {
+    db.close();
+    syncState.userRunning.clear();
+    syncState.contestQueueRunning = false;
+  }
+});
+
+test("first user sync imports accepted problems omitted from the problemset catalog", async () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+  insertUser(db);
+  syncState.catalogRunning = false;
+  syncState.userRunning.clear();
+
+  try {
+    const client = new OmittedAcceptedProblemClient();
+    await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
+
+    const status = db
+      .prepare(`
+        SELECT ups.contest_id, ups.problem_index, p.name
+        FROM user_problem_status ups
+        JOIN problems p
+          ON p.contest_id = ups.contest_id
+          AND p.problem_index = ups.problem_index
+        WHERE ups.contest_id = 100 AND ups.problem_index = 'B'
+      `)
+      .get() as { contest_id: number; problem_index: string; name: string };
+
+    assert.deepEqual({ ...status }, {
+      contest_id: 100,
+      problem_index: "B",
+      name: "B",
+    });
   } finally {
     db.close();
     syncState.userRunning.clear();

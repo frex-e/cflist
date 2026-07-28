@@ -4,17 +4,19 @@ import { shouldRefreshProblemMetadata, shouldSyncCatalog } from "../../db/querie
 import {
   acceptedProblemsFromSubmissions,
   expandAcceptedProblemsByCanonicalId,
+  problemKey,
   type AcceptedProblem,
 } from "../accepted-problems.js";
 import { CodeforcesClient } from "../client.js";
 import { getCodeforcesClient } from "../shared-client.js";
-import type { CfRatingChange, CfContest } from "../types.js";
+import type { CfRatingChange, CfContest, CfSubmission } from "../types.js";
+import { upsertProblemWithTags } from "../../db/writes/problems.js";
 import { getCachedStandings, backfillUserContestPerformances } from "./cache.js";
 import { collectContestsNeedingRefresh, invalidateContestCachesForContests } from "./contest-corrections.js";
 import { refreshProblemMetadata, syncCatalog } from "./catalog.js";
 import { drainContestSyncJobs, enqueueContestHydrationJobs } from "./contest-queue.js";
 import { recomputeExistingUpsolvesForUser } from "./contest-hydration.js";
-import { contestSortValue, ensureContestsExist, loadContestsById, missingContestIds, now } from "./helpers.js";
+import { codeforcesProblemUrl, contestSortValue, ensureContestsExist, loadContestsById, missingContestIds, now } from "./helpers.js";
 import { syncState } from "./state.js";
 
 const MAX_CONTEST_RESULTS_ENQUEUE = 30;
@@ -27,6 +29,52 @@ const maybeSyncCatalog = async (db: Db, client: CodeforcesClient): Promise<void>
 
   if (!shouldRefreshProblemMetadata(db)) return;
   await refreshProblemMetadata(db, client);
+};
+
+const ensureAcceptedProblemsExist = (
+  db: Db,
+  submissions: CfSubmission[],
+  accepted: Map<string, AcceptedProblem>,
+  checkedAt: string,
+): void => {
+  const acceptedProblems = new Map<string, CfSubmission["problem"]>();
+  for (const submission of submissions) {
+    const contestId = submission.problem.contestId;
+    if (submission.verdict !== "OK" || typeof contestId !== "number") continue;
+    const key = problemKey(contestId, submission.problem.index);
+    if (accepted.has(key)) acceptedProblems.set(key, submission.problem);
+  }
+
+  const problemExists = db.prepare(`
+    SELECT 1
+    FROM problems
+    WHERE contest_id = @contestId AND problem_index = @problemIndex
+  `);
+
+  transaction(db, () => {
+    for (const item of accepted.values()) {
+      if (problemExists.get({ contestId: item.contestId, problemIndex: item.problemIndex })) continue;
+
+      const problem = acceptedProblems.get(problemKey(item.contestId, item.problemIndex));
+      if (!problem) {
+        throw new Error(`Accepted problem ${item.contestId}${item.problemIndex} was not found in submissions`);
+      }
+
+      upsertProblemWithTags(db, {
+        contestId: item.contestId,
+        problemIndex: item.problemIndex,
+        name: problem.name,
+        type: problem.type ?? null,
+        points: problem.points ?? null,
+        rating: problem.rating ?? null,
+        tags: problem.tags,
+        url: codeforcesProblemUrl(item.contestId, item.problemIndex),
+        rawJson: JSON.stringify(problem),
+        updatedAt: checkedAt,
+        problemsetName: problem.problemsetName ?? null,
+      }, "standings");
+    }
+  });
 };
 
 const writeBasicContestResults = (
@@ -234,6 +282,8 @@ export const syncUserStatus = async (
 
     const checkedAt = now();
     ensureContestsExist(db, [...candidateContestIds], ratingsByContestId, contestsById, checkedAt);
+    ensureAcceptedProblemsExist(db, submissions, exactAccepted, checkedAt);
+    accepted = expandAcceptedProblemsByCanonicalId(db, exactAccepted);
 
     const sortedCandidateContestIds = [...candidateContestIds]
       .sort((a, b) => contestSortValue(contestsById.get(b), ratingsByContestId.get(b)) - contestSortValue(contestsById.get(a), ratingsByContestId.get(a)));

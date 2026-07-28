@@ -49,7 +49,7 @@ User sync refreshes catalog when the problem table is empty or the last successf
 - After enqueueing hydration jobs, user sync drains recently enqueued jobs (top 30 by recency) before finishing so the first sync click can populate new upsolve pills. Older backfill jobs stay in the background queue.
 - Commits catalog, solved-status, and basic rating updates before contest refresh work. Queued contest rows are written one contest at a time as each result is calculated.
 - Contest problem pills classify solved-in-contest from standings rows and upsolves from accepted submissions after contest end. Accepted submissions expand through `problems.canonical_id`, so a shared Div. 1/Div. 2 task is solved in both simultaneous placements (or upsolved in both when accepted after the round), even when the indices differ. Exact Codeforces status remains stored under the submitted contest/index; canonical expansion is derived for contest discovery and hydration. If a submission-discovered contest has no exact standings row for the handle, accepted submissions still provide fallback solved/upsolved pills while rank/score stay blank.
-- Standings can include contest-scoped problems absent from `problemset.problems`, especially shared Div. 1/Div. 2 rounds. User sync imports those standings problems into `problems` before writing `user_contest_problem_results`.
+- Accepted submissions and standings can include contest-scoped problems absent from `problemset.problems`, especially shared Div. 1/Div. 2 rounds. User sync imports missing accepted problems from submission metadata before writing `user_problem_status`; hydration later imports all standings problems before writing `user_contest_problem_results`.
 
 ## Referential integrity
 
