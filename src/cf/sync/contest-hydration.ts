@@ -353,7 +353,15 @@ export const hydrateUserContestResult = async (
 
   const row = standings.rows.find((standingsRow) => hasHandle(standingsRow, cfHandle));
   const contest = contestsById.get(contestId);
-  const problemResults = computeProblemResults(contestId, standings, row, knownProblems, accepted, contest);
+  const refreshedAccepted = acceptedProblemsFromDb(db, userId);
+  const problemResults = computeProblemResults(
+    contestId,
+    standings,
+    row,
+    knownProblems,
+    refreshedAccepted,
+    contest,
+  );
 
   if (!row && !existingRatingChange && problemResults.every((problem) => !problem.solvedInContest && !problem.upsolved)) {
     return false;

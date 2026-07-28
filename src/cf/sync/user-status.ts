@@ -14,6 +14,7 @@ import { upsertProblemWithTags } from "../../db/writes/problems.js";
 import { getCachedStandings, backfillUserContestPerformances } from "./cache.js";
 import { collectContestsNeedingRefresh, invalidateContestCachesForContests } from "./contest-corrections.js";
 import { refreshProblemMetadata, syncCatalog } from "./catalog.js";
+import { getPairedContestId } from "./canonical-problems.js";
 import { drainContestSyncJobs, enqueueContestHydrationJobs } from "./contest-queue.js";
 import { recomputeExistingUpsolvesForUser } from "./contest-hydration.js";
 import { codeforcesProblemUrl, contestSortValue, ensureContestsExist, loadContestsById, missingContestIds, now } from "./helpers.js";
@@ -284,6 +285,17 @@ export const syncUserStatus = async (
     ensureContestsExist(db, [...candidateContestIds], ratingsByContestId, contestsById, checkedAt);
     ensureAcceptedProblemsExist(db, submissions, exactAccepted, checkedAt);
     accepted = expandAcceptedProblemsByCanonicalId(db, exactAccepted);
+    for (const item of accepted.values()) {
+      candidateContestIds.add(item.contestId);
+    }
+
+    const pairedContestProbes = new Map<number, number>();
+    for (const item of exactAccepted.values()) {
+      const pairedContestId = getPairedContestId(db, item.contestId);
+      if (pairedContestId !== undefined && !candidateContestIds.has(pairedContestId)) {
+        pairedContestProbes.set(pairedContestId, item.contestId);
+      }
+    }
 
     const sortedCandidateContestIds = [...candidateContestIds]
       .sort((a, b) => contestSortValue(contestsById.get(b), ratingsByContestId.get(b)) - contestSortValue(contestsById.get(a), ratingsByContestId.get(a)));
@@ -376,11 +388,21 @@ export const syncUserStatus = async (
       ],
     );
     const enqueuedContestResults = enqueuedRecent + enqueuedBackfill;
+    const enqueuedPairedProbes = enqueueContestHydrationJobs(
+      db,
+      userId,
+      cfHandle,
+      [...pairedContestProbes].map(([contestId, sourceContestId]) => ({
+        contestId,
+        priority: rankByContestId.get(sourceContestId) ?? 0,
+      })),
+    );
 
-    if (enqueuedRecent > 0) {
-      await drainContestSyncJobs(db, client, enqueuedRecent);
+    if (enqueuedRecent + enqueuedPairedProbes > 0) {
+      await drainContestSyncJobs(db, client, enqueuedRecent + enqueuedPairedProbes);
     }
 
+    accepted = expandAcceptedProblemsByCanonicalId(db, exactAccepted);
     recomputeAllExistingUpsolves(db, userId, contestsById, accepted);
 
     const refreshNote = refreshContestIds.length > 0
@@ -391,7 +413,7 @@ export const syncUserStatus = async (
       db,
       syncRunId,
       "success",
-      `Synced ${accepted.size} solved problems and queued ${enqueuedContestResults} contest detail refreshes for ${cfHandle}${refreshNote}.`,
+      `Synced ${accepted.size} solved problems and queued ${enqueuedContestResults + enqueuedPairedProbes} contest detail refreshes for ${cfHandle}${refreshNote}.`,
       now(),
     );
   } catch (error) {
