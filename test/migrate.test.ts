@@ -58,12 +58,20 @@ test("migrate bootstraps the current schema without migration history", () => {
   }
 });
 
-test("migrate is idempotent", () => {
+test("migrate preserves a deployed current-schema database", () => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
 
   try {
     migrate(db);
+    db.exec(`
+      CREATE TABLE schema_migrations (
+        version INTEGER PRIMARY KEY,
+        applied_at TEXT NOT NULL
+      );
+      INSERT INTO schema_migrations (version, applied_at)
+      VALUES (9, '2026-01-01T00:00:00.000Z');
+    `);
     db.prepare(
       `
       INSERT INTO "user" (
@@ -78,7 +86,11 @@ test("migrate is idempotent", () => {
     migrate(db);
 
     const users = db.prepare(`SELECT COUNT(*) AS count FROM "user"`).get() as { count: number };
+    const version = db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as {
+      version: number;
+    };
     assert.equal(users.count, 1);
+    assert.equal(version.version, 9);
   } finally {
     db.close();
   }
