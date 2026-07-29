@@ -1132,6 +1132,9 @@ test("user sync imports standings-only contest problems before writing contest r
     const contestRows = db.prepare("SELECT COUNT(*) AS count FROM user_contest_results").get() as { count: number };
     const problemRows = db.prepare("SELECT COUNT(*) AS count FROM user_contest_problem_results").get() as { count: number };
     const catalogProblemRows = db.prepare("SELECT COUNT(*) AS count FROM problems").get() as { count: number };
+    const contestPerformance = db
+      .prepare("SELECT performance FROM user_contest_results WHERE contest_id = 100")
+      .get() as { performance: number | null };
     const standingsOnlyProblem = db
       .prepare("SELECT name, rating, solved_count, tags_json FROM problems WHERE contest_id = 100 AND problem_index = 'Z'")
       .get() as { name: string; rating: number; solved_count: number | null; tags_json: string };
@@ -1149,6 +1152,7 @@ test("user sync imports standings-only contest problems before writing contest r
     assert.equal(client.standingsCalls, 1);
     assert.deepEqual(client.standingsHandles, [cfHandle]);
     assert.equal(contestRows.count, 1);
+    assert.equal(contestPerformance.performance, 1867);
     assert.equal(problemRows.count, 3);
     assert.equal(catalogProblemRows.count, 3);
     assert.deepEqual({ ...standingsOnlyProblem }, {
