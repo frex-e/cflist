@@ -30,6 +30,14 @@ type AppVariables = {
 
 type AppContext = Context<{ Variables: AppVariables }>;
 
+const SLOW_REQUEST_MS = 1_000;
+
+export const shouldLogRequest = (method: string, path: string, status: number, durationMs: number): boolean => {
+  if (path === "/healthz") return false;
+  if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") return true;
+  return status >= 400 || durationMs >= SLOW_REQUEST_MS;
+};
+
 const notFoundPage = (user: AuthUser | null): string => {
   return layout({
     title: "Not Found",
@@ -118,9 +126,10 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
   app.use("*", async (c, next) => {
     const startedAt = Date.now();
     await next();
+    const durationMs = Date.now() - startedAt;
     const path = new URL(c.req.url).pathname;
-    if (path !== "/healthz") {
-      console.log(`${c.req.method} ${path} ${c.res.status} ${Date.now() - startedAt}ms`);
+    if (shouldLogRequest(c.req.method, path, c.res.status, durationMs)) {
+      console.log(`${c.req.method} ${path} ${c.res.status} ${durationMs}ms`);
     }
   });
 
