@@ -57,9 +57,8 @@ User sync refreshes catalog when the problem table is empty or the last successf
 
 - `problems.contest_id` → `contests(id)`; `user_problem_status` → `problems(contest_id, problem_index)`.
 - `sync_runs.user_id` → `"user"(id)` with `ON DELETE SET NULL`.
-- Orphan rows are cleaned before FK migrations (`src/db/migrate-audit.ts`).
 - `cf_handle` is not stored on `user_problem_status` / `user_contest_results`; join `"user".cfHandle` when needed. Kept on `sync_runs` / `contest_sync_jobs` for observability.
 
-## Migrations
+## Schema bootstrap
 
-Pre-auth databases can be deleted instead of migrated. Schema changes use versioned steps in `src/db/migrate.ts` (`schema_migrations` table). v6 adds `canonical_id` and re-keys overrides; v7 adds FKs, CHECK constraints, indexes, and performance-cache user key; v8 re-pairs Div. 1/Div. 2 rounds by start time and links canonical ids; v9 adds/backfills per-user standings freshness and drops the full standings cache table.
+`src/db/migrate.ts` creates the current schema directly. There is no deployed database or migration history yet; delete local databases when the schema changes.
