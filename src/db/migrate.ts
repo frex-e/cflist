@@ -676,6 +676,41 @@ const applyCanonicalRoundPairFixMigration = (db: Db): void => {
   recordMigration(db, 8);
 };
 
+const applyFilteredStandingsMigration = (db: Db): void => {
+  if (currentVersion(db) >= 9) return;
+
+  if (tableExists(db, "user_contest_results")) {
+    if (!columnExists(db, "user_contest_results", "standings_checked_at")) {
+      db.exec(`ALTER TABLE user_contest_results ADD COLUMN standings_checked_at TEXT`);
+    }
+
+    const cachedTimestamp = tableExists(db, "contest_standings_cache")
+      ? `(
+          SELECT csc.fetched_at
+          FROM contest_standings_cache csc
+          WHERE csc.contest_id = user_contest_results.contest_id
+        )`
+      : "NULL";
+    db.exec(`
+      UPDATE user_contest_results
+      SET standings_checked_at = COALESCE(${cachedTimestamp}, last_checked_at)
+      WHERE standings_checked_at IS NULL
+        AND EXISTS (
+          SELECT 1
+          FROM user_contest_problem_results ucpr
+          WHERE ucpr.user_id = user_contest_results.user_id
+            AND ucpr.contest_id = user_contest_results.contest_id
+        )
+    `);
+  }
+
+  if (tableExists(db, "contest_standings_cache")) {
+    db.exec(`DROP TABLE contest_standings_cache`);
+  }
+
+  recordMigration(db, 9);
+};
+
 export const migrate = (db: Db): void => {
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -692,4 +727,5 @@ export const migrate = (db: Db): void => {
   applyCanonicalMigration(db);
   applyIntegrityMigration(db);
   applyCanonicalRoundPairFixMigration(db);
+  applyFilteredStandingsMigration(db);
 };

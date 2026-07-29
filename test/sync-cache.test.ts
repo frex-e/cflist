@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import type { CodeforcesClient } from "../src/cf/client.js";
+import { CodeforcesClient } from "../src/cf/client.js";
 import { runContestSyncQueue, syncState, syncUserStatus } from "../src/cf/sync.js";
 import { enqueueContestHydrationJobs } from "../src/cf/sync/contest-queue.js";
 import type { CfContest, CfProblemset, CfRatingChange, CfStandings, CfSubmission } from "../src/cf/types.js";
@@ -11,6 +11,35 @@ import { migrate } from "../src/db/migrate.js";
 const recentCatalogSyncAt = new Date(Date.now() - 60_000).toISOString();
 const userId = "user-1";
 const cfHandle = "inj";
+
+test("contestStandings sends the requested handle filter", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  globalThis.fetch = async (input) => {
+    requestedUrl = String(input);
+    return new Response(JSON.stringify({
+      status: "OK",
+      result: {
+        contest: { id: 100, name: "Round 100" },
+        problems: [],
+        rows: [],
+      },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    await new CodeforcesClient(0).contestStandings(100, cfHandle);
+    const url = new URL(requestedUrl);
+    assert.equal(url.pathname, "/api/contest.standings");
+    assert.equal(url.searchParams.get("contestId"), "100");
+    assert.equal(url.searchParams.get("handles"), cfHandle);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 const insertUser = (db: DatabaseSync): void => {
   db.prepare(
@@ -39,6 +68,7 @@ const insertUser = (db: DatabaseSync): void => {
 class FakeClient {
   ratingChangesCalls = 0;
   standingsCalls = 0;
+  standingsHandles: string[] = [];
   failStandings = false;
 
   async contests(): Promise<CfContest[]> {
@@ -123,8 +153,9 @@ class FakeClient {
     ];
   }
 
-  async contestStandings(): Promise<CfStandings> {
+  async contestStandings(_contestId = 100, handle = ""): Promise<CfStandings> {
     this.standingsCalls += 1;
+    this.standingsHandles.push(handle);
     if (this.failStandings) throw new Error("standings failed");
     return {
       contest: {
@@ -181,8 +212,9 @@ class SubmissionOnlyClient extends FakeClient {
     throw new Error("rating changes should not be fetched");
   }
 
-  async contestStandings(): Promise<CfStandings> {
+  async contestStandings(_contestId = 100, handle = ""): Promise<CfStandings> {
     this.standingsCalls += 1;
+    this.standingsHandles.push(handle);
     return {
       contest: {
         id: 100,
@@ -194,22 +226,7 @@ class SubmissionOnlyClient extends FakeClient {
         { contestId: 100, index: "A", name: "A", tags: [] },
         { contestId: 100, index: "B", name: "B", tags: [] },
       ],
-      rows: [
-        {
-          party: {
-            contestId: 100,
-            members: [{ handle: "someone-else" }],
-            participantType: "CONTESTANT",
-          },
-          rank: 1,
-          points: 2,
-          penalty: 10,
-          problemResults: [
-            { points: 1, bestSubmissionTimeSeconds: 100, rejectedAttemptCount: 0 },
-            { points: 1, bestSubmissionTimeSeconds: 200, rejectedAttemptCount: 0 },
-          ],
-        },
-      ],
+      rows: [],
     };
   }
 }
@@ -259,7 +276,9 @@ class SharedDivisionClient extends SubmissionOnlyClient {
     ];
   }
 
-  async contestStandings(contestId = 201): Promise<CfStandings> {
+  async contestStandings(contestId = 201, handle = ""): Promise<CfStandings> {
+    this.standingsCalls += 1;
+    this.standingsHandles.push(handle);
     const isDiv1 = contestId === 201;
     return {
       contest: {
@@ -304,8 +323,10 @@ class StandingsDiscoveredSharedDivisionClient extends SharedDivisionClient {
 }
 
 class UnsharedPairedDivisionClient extends StandingsDiscoveredSharedDivisionClient {
-  async contestStandings(contestId = 201): Promise<CfStandings> {
-    if (contestId === 201) return super.contestStandings(contestId);
+  async contestStandings(contestId = 201, handle = ""): Promise<CfStandings> {
+    if (contestId === 201) return super.contestStandings(contestId, handle);
+    this.standingsCalls += 1;
+    this.standingsHandles.push(handle);
     return {
       contest: {
         id: 202,
@@ -342,8 +363,9 @@ class UpsolveOnlyClient extends FakeClient {
     throw new Error("rating changes should not be fetched");
   }
 
-  async contestStandings(): Promise<CfStandings> {
+  async contestStandings(_contestId = 100, handle = ""): Promise<CfStandings> {
     this.standingsCalls += 1;
+    this.standingsHandles.push(handle);
     return {
       contest: {
         id: 100,
@@ -355,22 +377,7 @@ class UpsolveOnlyClient extends FakeClient {
         { contestId: 100, index: "A", name: "A", tags: [] },
         { contestId: 100, index: "B", name: "B", tags: [] },
       ],
-      rows: [
-        {
-          party: {
-            contestId: 100,
-            members: [{ handle: "someone-else" }],
-            participantType: "CONTESTANT",
-          },
-          rank: 1,
-          points: 2,
-          penalty: 10,
-          problemResults: [
-            { points: 1, bestSubmissionTimeSeconds: 100, rejectedAttemptCount: 0 },
-            { points: 1, bestSubmissionTimeSeconds: 200, rejectedAttemptCount: 0 },
-          ],
-        },
-      ],
+      rows: [],
     };
   }
 }
@@ -498,8 +505,9 @@ class NoopHydrationClient extends FakeClient {
     throw new Error("rating changes should not be fetched");
   }
 
-  async contestStandings(): Promise<CfStandings> {
+  async contestStandings(_contestId = 100, handle = ""): Promise<CfStandings> {
     this.standingsCalls += 1;
+    this.standingsHandles.push(handle);
     return {
       contest: {
         id: 100,
@@ -510,27 +518,14 @@ class NoopHydrationClient extends FakeClient {
       problems: [
         { contestId: 100, index: "A", name: "A", tags: [] },
       ],
-      rows: [
-        {
-          party: {
-            contestId: 100,
-            members: [{ handle: "someone-else" }],
-            participantType: "CONTESTANT",
-          },
-          rank: 1,
-          points: 1,
-          penalty: 10,
-          problemResults: [
-            { points: 1, bestSubmissionTimeSeconds: 100, rejectedAttemptCount: 0 },
-          ],
-        },
-      ],
+      rows: [],
     };
   }
 }
 
 class BackfillClient {
   standingsCalls: number[] = [];
+  standingsHandles: string[] = [];
 
   private readonly contestIds = Array.from({ length: 35 }, (_, index) => index + 1);
 
@@ -599,8 +594,9 @@ class BackfillClient {
     ];
   }
 
-  async contestStandings(contestId: number): Promise<CfStandings> {
+  async contestStandings(contestId: number, handle: string): Promise<CfStandings> {
     this.standingsCalls.push(contestId);
+    this.standingsHandles.push(handle);
     return {
       contest: {
         id: contestId,
@@ -799,12 +795,20 @@ test("user sync keeps completed contest jobs done unless hydration is incomplete
     const client = new FakeClient();
     await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
     await runContestSyncQueue(db, client as unknown as CodeforcesClient);
+    const hydratedAt = db
+      .prepare("SELECT standings_checked_at FROM user_contest_results WHERE contest_id = 100")
+      .get() as { standings_checked_at: string };
     await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
 
     const job = db
       .prepare("SELECT status FROM contest_sync_jobs WHERE contest_id = 100")
       .get() as { status: string };
+    const afterBasicSync = db
+      .prepare("SELECT standings_checked_at FROM user_contest_results WHERE contest_id = 100")
+      .get() as { standings_checked_at: string };
     assert.equal(job.status, "done");
+    assert.equal(client.standingsCalls, 1);
+    assert.equal(afterBasicSync.standings_checked_at, hydratedAt.standings_checked_at);
   } finally {
     db.close();
     syncState.userRunning.clear();
@@ -1137,9 +1141,13 @@ test("user sync imports standings-only contest problems before writing contest r
     const upsolved = db
       .prepare("SELECT upsolved FROM user_contest_problem_results WHERE problem_index = 'B'")
       .get() as { upsolved: number };
+    const cachedRatingChanges = db
+      .prepare("SELECT raw_json FROM contest_rating_changes_cache WHERE contest_id = 100")
+      .get() as { raw_json: string };
 
     assert.equal(client.ratingChangesCalls, 1);
     assert.equal(client.standingsCalls, 1);
+    assert.deepEqual(client.standingsHandles, [cfHandle]);
     assert.equal(contestRows.count, 1);
     assert.equal(problemRows.count, 3);
     assert.equal(catalogProblemRows.count, 3);
@@ -1151,6 +1159,10 @@ test("user sync imports standings-only contest problems before writing contest r
     });
     assert.equal(problemsetProblem.solved_count, 50);
     assert.equal(upsolved.upsolved, 1);
+    assert.deepEqual(
+      (JSON.parse(cachedRatingChanges.raw_json) as CfRatingChange[]).map((change) => change.handle),
+      ["winner", cfHandle],
+    );
   } finally {
     db.close();
     syncState.userRunning.clear();
@@ -1270,6 +1282,7 @@ test("user sync enqueues all older unsynced contests on refresh", async () => {
       15, 14, 13, 12, 11, 10, 9, 8, 7, 6,
       5, 4, 3, 2, 1,
     ]);
+    assert.ok(client.standingsHandles.every((handle) => handle === cfHandle));
 
     await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
 

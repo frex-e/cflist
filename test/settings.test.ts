@@ -67,9 +67,13 @@ const seedUserCfData = (db: DatabaseSync, userId: string): void => {
   db.prepare(
     `
     INSERT INTO user_contest_results (
-      user_id, contest_id, rank, old_rating, new_rating, rating_delta, last_checked_at
+      user_id, contest_id, rank, old_rating, new_rating, rating_delta,
+      last_checked_at, standings_checked_at
     )
-    VALUES (@userId, 1, 42, 2300, 2400, 100, '2026-01-01T00:00:00.000Z')
+    VALUES (
+      @userId, 1, 42, 2300, 2400, 100,
+      '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+    )
   `,
   ).run({ userId });
 
@@ -162,13 +166,13 @@ test("POST /settings/reset-cf-data clears synced rows and keeps the account", as
   });
 });
 
-test("POST /settings/refresh-contest-details invalidates caches and queues hydration", async () => {
+test("POST /settings/refresh-contest-details clears freshness and queues hydration", async () => {
   await withApp(async (app, db, cookie, userId) => {
     seedUserCfData(db, userId);
     db.prepare(
       `
-      INSERT INTO contest_standings_cache (contest_id, raw_json, fetched_at)
-      VALUES (1, '{}', '2026-01-01T00:00:00.000Z')
+      INSERT INTO contest_rating_changes_cache (contest_id, raw_json, fetched_at)
+      VALUES (1, '[]', '2026-01-01T00:00:00.000Z')
     `,
     ).run();
     db.prepare(
@@ -190,12 +194,13 @@ test("POST /settings/refresh-contest-details invalidates caches and queues hydra
     assert.equal(response.status, 303);
     assert.match(response.headers.get("location") ?? "", /success=/);
 
-    const standingsCache = db.prepare("SELECT COUNT(*) AS count FROM contest_standings_cache").get() as { count: number };
-    assert.equal(standingsCache.count, 0);
+    const ratingCache = db.prepare("SELECT COUNT(*) AS count FROM contest_rating_changes_cache").get() as { count: number };
+    assert.equal(ratingCache.count, 0);
     const performance = db.prepare(
-      "SELECT performance FROM user_contest_results WHERE user_id = @userId AND contest_id = 1",
-    ).get({ userId }) as { performance: number | null };
+      "SELECT performance, standings_checked_at FROM user_contest_results WHERE user_id = @userId AND contest_id = 1",
+    ).get({ userId }) as { performance: number | null; standings_checked_at: string | null };
     assert.equal(performance.performance, null);
+    assert.equal(performance.standings_checked_at, null);
     const job = db.prepare(
       "SELECT status FROM contest_sync_jobs WHERE user_id = @userId AND contest_id = 1",
     ).get({ userId }) as { status: string };

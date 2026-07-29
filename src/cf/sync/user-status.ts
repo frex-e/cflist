@@ -11,7 +11,7 @@ import { CodeforcesClient } from "../client.js";
 import { getCodeforcesClient } from "../shared-client.js";
 import type { CfRatingChange, CfContest, CfSubmission } from "../types.js";
 import { upsertProblemWithTags } from "../../db/writes/problems.js";
-import { getCachedStandings, backfillUserContestPerformances } from "./cache.js";
+import { backfillUserContestPerformances } from "./cache.js";
 import { collectContestsNeedingRefresh, invalidateContestCachesForContests } from "./contest-corrections.js";
 import { refreshProblemMetadata, syncCatalog } from "./catalog.js";
 import { getPairedContestId } from "./canonical-problems.js";
@@ -180,8 +180,10 @@ export const contestNeedsHydration = (
   problemCount: number,
 ): boolean => {
   if (problemCount === 0) return true;
-  const cachedStandings = getCachedStandings(db, contestId);
-  return cachedStandings !== undefined && problemCount < cachedStandings.problems.length;
+  const known = db
+    .prepare("SELECT COUNT(*) AS count FROM problems WHERE contest_id = @contestId")
+    .get({ contestId }) as { count: number };
+  return problemCount < known.count;
 };
 
 const contestIdsWithProblemPills = (db: Db, userId: string): number[] => {
@@ -238,7 +240,7 @@ export const refreshUserContestDetails = (
     .all({ userId }) as { contest_id: number }[];
 
   const contestIds = contestRows.map((row) => row.contest_id);
-  invalidateContestCachesForContests(db, contestIds);
+  invalidateContestCachesForContests(db, userId, contestIds);
 
   const jobs = contestIds.map((contestId, priority) => ({ contestId, priority }));
   enqueueContestHydrationJobs(db, userId, cfHandle, jobs);
@@ -305,7 +307,7 @@ export const syncUserStatus = async (
       ratingsByContestId,
       sortedCandidateContestIds,
     );
-    invalidateContestCachesForContests(db, refreshContestIds);
+    invalidateContestCachesForContests(db, userId, refreshContestIds);
     const refreshContestIdSet = new Set(refreshContestIds);
     const rankByContestId = new Map(sortedCandidateContestIds.map((contestId, rank) => [contestId, rank]));
     const problemCountsByContestId = completedContestProblemCounts(db, userId);

@@ -20,6 +20,17 @@ SQLite runs in WAL mode (`PRAGMA journal_mode = WAL`). To back up safely:
 
 A naive `cp` of only the main `.sqlite` file while the app is writing can produce an inconsistent snapshot.
 
+## One-time standings-cache disk reclamation
+
+Migration v9 drops `contest_standings_cache`, so SQLite can reuse those pages immediately, but the database file does not shrink automatically. After deploying v9:
+
+1. Back up the database using the guidance above.
+2. Stop the app so no process is using the database.
+3. Run `sqlite3 data/cflist.sqlite 'VACUUM;'` (substitute the configured `DB_PATH`).
+4. Restart the app.
+
+`VACUUM` is intentionally not run during startup: it can block startup and temporarily needs substantial free disk while rebuilding the file.
+
 ## Design tradeoffs
 
 - Server-rendered and URL-backed; avoid a client-side app model unless the UI clearly needs it.

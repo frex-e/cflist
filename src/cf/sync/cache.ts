@@ -1,6 +1,6 @@
 import type { Db } from "../../db/connection.js";
 import { estimateContestPerformance } from "../rating.js";
-import type { CfRatingChange, CfStandings } from "../types.js";
+import type { CfRatingChange } from "../types.js";
 import type { CodeforcesClient } from "../client.js";
 
 const now = (): string => new Date().toISOString();
@@ -14,30 +14,21 @@ export const parseCachedJson = <T>(value: string | undefined): T | undefined => 
   }
 };
 
-type ContestCacheKind = "standings" | "ratingChanges";
-
-const CACHE_TABLES: Record<ContestCacheKind, string> = {
-  standings: "contest_standings_cache",
-  ratingChanges: "contest_rating_changes_cache",
-};
-
-export const getOrFetchContestCache = async <T>(
+const getOrFetchRatingChangesCache = async (
   db: Db,
-  kind: ContestCacheKind,
   contestId: number,
-  fetcher: () => Promise<T>,
-): Promise<T> => {
-  const table = CACHE_TABLES[kind];
+  fetcher: () => Promise<CfRatingChange[]>,
+): Promise<CfRatingChange[]> => {
   const cached = db
-    .prepare(`SELECT raw_json FROM ${table} WHERE contest_id = @contestId`)
+    .prepare("SELECT raw_json FROM contest_rating_changes_cache WHERE contest_id = @contestId")
     .get({ contestId }) as { raw_json: string } | undefined;
-  const parsed = parseCachedJson<T>(cached?.raw_json);
+  const parsed = parseCachedJson<CfRatingChange[]>(cached?.raw_json);
   if (parsed !== undefined) return parsed;
 
   const data = await fetcher();
   db.prepare(
     `
-    INSERT INTO ${table} (contest_id, raw_json, fetched_at)
+    INSERT INTO contest_rating_changes_cache (contest_id, raw_json, fetched_at)
     VALUES (@contestId, @rawJson, @fetchedAt)
     ON CONFLICT(contest_id) DO UPDATE SET
       raw_json = excluded.raw_json,
@@ -47,13 +38,6 @@ export const getOrFetchContestCache = async <T>(
   return data;
 };
 
-export const getCachedStandings = (db: Db, contestId: number): CfStandings | undefined => {
-  const cached = db
-    .prepare("SELECT raw_json FROM contest_standings_cache WHERE contest_id = @contestId")
-    .get({ contestId }) as { raw_json: string } | undefined;
-  return parseCachedJson<CfStandings>(cached?.raw_json);
-};
-
 export const getCachedRatingChanges = (db: Db, contestId: number): CfRatingChange[] | undefined => {
   const cached = db
     .prepare("SELECT raw_json FROM contest_rating_changes_cache WHERE contest_id = @contestId")
@@ -61,17 +45,21 @@ export const getCachedRatingChanges = (db: Db, contestId: number): CfRatingChang
   return parseCachedJson<CfRatingChange[]>(cached?.raw_json);
 };
 
-export const invalidateContestCaches = (db: Db, contestId: number): void => {
-  db.prepare("DELETE FROM contest_standings_cache WHERE contest_id = @contestId").run({ contestId });
+export const invalidateContestCaches = (db: Db, userId: string, contestId: number): void => {
   db.prepare("DELETE FROM contest_rating_changes_cache WHERE contest_id = @contestId").run({ contestId });
   db.prepare("DELETE FROM contest_performance_cache WHERE contest_id = @contestId").run({ contestId });
   db.prepare(
     `
     UPDATE user_contest_results
-    SET performance = NULL
+    SET
+      performance = NULL,
+      standings_checked_at = CASE
+        WHEN user_id = @userId THEN NULL
+        ELSE standings_checked_at
+      END
     WHERE contest_id = @contestId
   `,
-  ).run({ contestId });
+  ).run({ userId, contestId });
 };
 
 export const calculatePerformanceFromCache = (
@@ -181,15 +169,7 @@ export const getOrFetchRatingChanges = async (
   client: CodeforcesClient,
   contestId: number,
 ): Promise<CfRatingChange[]> => {
-  return getOrFetchContestCache(db, "ratingChanges", contestId, () => client.contestRatingChanges(contestId));
-};
-
-export const getOrFetchStandings = async (
-  db: Db,
-  client: CodeforcesClient,
-  contestId: number,
-): Promise<CfStandings> => {
-  return getOrFetchContestCache(db, "standings", contestId, () => client.contestStandings(contestId));
+  return getOrFetchRatingChangesCache(db, contestId, () => client.contestRatingChanges(contestId));
 };
 
 export const getRatedContestIndex = (db: Db, userId: string, contestId: number): number | undefined => {

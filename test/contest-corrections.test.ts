@@ -4,7 +4,6 @@ import test from "node:test";
 import type { CodeforcesClient } from "../src/cf/client.js";
 import {
   backfillUserContestPerformances,
-  getCachedStandings,
   invalidateContestCaches,
 } from "../src/cf/sync/cache.js";
 import {
@@ -66,15 +65,18 @@ const seedStoredContestResult = (
     oldRating: number;
     newRating: number;
     performance?: number | null;
+    standingsCheckedAt?: string | null;
   },
 ): void => {
   seedProblem(db, { contestId, index: "A", name: "A", canonicalId: "100A" });
   db.prepare(
     `
     INSERT INTO user_contest_results (
-      user_id, contest_id, rank, points, penalty, old_rating, new_rating, rating_delta, performance, last_checked_at
+      user_id, contest_id, rank, points, penalty, old_rating, new_rating, rating_delta,
+      performance, last_checked_at, standings_checked_at
     ) VALUES (
-      @userId, @contestId, @rank, 1, 30, @oldRating, @newRating, @ratingDelta, @performance, '2026-01-01T00:00:00.000Z'
+      @userId, @contestId, @rank, 1, 30, @oldRating, @newRating, @ratingDelta,
+      @performance, '2026-01-01T00:00:00.000Z', @standingsCheckedAt
     )
   `,
   ).run({
@@ -85,6 +87,7 @@ const seedStoredContestResult = (
     newRating: values.newRating,
     ratingDelta: values.newRating - values.oldRating,
     performance: values.performance ?? 1600,
+    standingsCheckedAt: values.standingsCheckedAt ?? "2026-01-01T00:00:00.000Z",
   });
   db.prepare(
     `
@@ -99,17 +102,6 @@ const seedStoredContestResult = (
 };
 
 const seedCaches = (db: DatabaseSync, fetchedAt: string): void => {
-  const standings: CfStandings = {
-    contest: { id: contestId, name: "Round 100", startTimeSeconds: 1000, durationSeconds: 7200 },
-    problems: [{ contestId, index: "A", name: "A", tags: [] }],
-    rows: [{
-      party: { contestId, members: [{ handle: cfHandle }], participantType: "CONTESTANT" },
-      rank: 2,
-      points: 1,
-      penalty: 30,
-      problemResults: [{ points: 1, bestSubmissionTimeSeconds: 1200, rejectedAttemptCount: 0 }],
-    }],
-  };
   const ratingChanges: CfRatingChange[] = [{
     contestId,
     contestName: "Round 100",
@@ -120,12 +112,6 @@ const seedCaches = (db: DatabaseSync, fetchedAt: string): void => {
     newRating: 1510,
   }];
 
-  db.prepare(
-    `
-    INSERT INTO contest_standings_cache (contest_id, raw_json, fetched_at)
-    VALUES (@contestId, @rawJson, @fetchedAt)
-  `,
-  ).run({ contestId, rawJson: JSON.stringify(standings), fetchedAt });
   db.prepare(
     `
     INSERT INTO contest_rating_changes_cache (contest_id, raw_json, fetched_at)
@@ -142,6 +128,7 @@ const seedCaches = (db: DatabaseSync, fetchedAt: string): void => {
 
 class CorrectionClient {
   standingsCalls = 0;
+  standingsHandles: string[] = [];
   ratingChangesCalls = 0;
   apiRank = 3;
   apiNewRating = 1520;
@@ -198,8 +185,9 @@ class CorrectionClient {
     }];
   }
 
-  async contestStandings(): Promise<CfStandings> {
+  async contestStandings(_contestId: number, handle: string): Promise<CfStandings> {
     this.standingsCalls += 1;
+    this.standingsHandles.push(handle);
     return {
       contest: { id: contestId, name: "Round 100", startTimeSeconds: 1000, durationSeconds: 7200 },
       problems: [{ contestId, index: "A", name: "A", tags: [] }],
@@ -214,21 +202,21 @@ class CorrectionClient {
   }
 }
 
-test("invalidateContestCaches removes shared caches and clears performance", () => {
+test("invalidateContestCaches clears shared rating caches and user standings freshness", () => {
   const db = new DatabaseSync(":memory:");
   setupBase(db);
   seedStoredContestResult(db, { rank: 2, oldRating: 1500, newRating: 1510, performance: 1600 });
   seedCaches(db, "2026-01-01T00:00:00.000Z");
 
-  invalidateContestCaches(db, contestId);
+  invalidateContestCaches(db, userId, contestId);
 
-  assert.equal(getCachedStandings(db, contestId), undefined);
   const ratingCache = db.prepare("SELECT COUNT(*) AS count FROM contest_rating_changes_cache").get() as { count: number };
   assert.equal(ratingCache.count, 0);
   const performance = db.prepare(
-    "SELECT performance FROM user_contest_results WHERE user_id = @userId AND contest_id = @contestId",
-  ).get({ userId, contestId }) as { performance: number | null };
+    "SELECT performance, standings_checked_at FROM user_contest_results WHERE user_id = @userId AND contest_id = @contestId",
+  ).get({ userId, contestId }) as { performance: number | null; standings_checked_at: string | null };
   assert.equal(performance.performance, null);
+  assert.equal(performance.standings_checked_at, null);
   db.close();
 });
 
@@ -265,27 +253,34 @@ test("detectContestCorrections finds rank and rating mismatches", () => {
   db.close();
 });
 
-test("isContestCacheStale respects TTL and partial caches", () => {
+test("isContestCacheStale uses per-user standings freshness and only requires ratings for rated contests", () => {
   const db = new DatabaseSync(":memory:");
   setupBase(db);
 
-  assert.equal(isContestCacheStale(db, contestId, 14), false);
+  assert.equal(isContestCacheStale(db, userId, contestId, 14), false);
+  seedStoredContestResult(db, { rank: 2, oldRating: 1500, newRating: 1510 });
 
   const fresh = new Date().toISOString();
-  db.prepare(
-    "INSERT INTO contest_standings_cache (contest_id, raw_json, fetched_at) VALUES (?, '{}', ?)",
-  ).run(contestId, fresh);
-  assert.equal(isContestCacheStale(db, contestId, 14), true);
+  db.prepare("UPDATE user_contest_results SET standings_checked_at = NULL").run();
+  assert.equal(isContestCacheStale(db, userId, contestId, 14), true);
 
+  db.prepare("UPDATE user_contest_results SET standings_checked_at = ?").run(fresh);
+  assert.equal(isContestCacheStale(db, userId, contestId, 14), true);
   db.prepare(
     "INSERT INTO contest_rating_changes_cache (contest_id, raw_json, fetched_at) VALUES (?, '[]', ?)",
   ).run(contestId, fresh);
-  assert.equal(isContestCacheStale(db, contestId, 14), false);
+  assert.equal(isContestCacheStale(db, userId, contestId, 14), false);
 
   const stale = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  db.prepare("UPDATE contest_standings_cache SET fetched_at = ? WHERE contest_id = ?").run(stale, contestId);
-  assert.equal(isContestCacheStale(db, contestId, 14), true);
-  assert.deepEqual(contestsWithStaleCache(db, [contestId], 14, 10), [contestId]);
+  db.prepare("UPDATE user_contest_results SET standings_checked_at = ?").run(stale);
+  assert.equal(isContestCacheStale(db, userId, contestId, 14), true);
+  assert.deepEqual(contestsWithStaleCache(db, userId, [contestId], 14, 10), [contestId]);
+
+  db.prepare(
+    "UPDATE user_contest_results SET standings_checked_at = ?, old_rating = NULL, new_rating = NULL, rating_delta = NULL",
+  ).run(fresh);
+  db.prepare("DELETE FROM contest_rating_changes_cache").run();
+  assert.equal(isContestCacheStale(db, userId, contestId, 14), false);
   db.close();
 });
 
@@ -350,28 +345,10 @@ test("syncUserStatus invalidates caches and re-fetches standings after Codeforce
   }
 });
 
-test("hydrateUserContestResult with force bypasses skip and re-hydrates from standings", async () => {
+test("hydrateUserContestResult with force performs a filtered standings request", async () => {
   const db = new DatabaseSync(":memory:");
   setupBase(db);
   seedStoredContestResult(db, { rank: 2, oldRating: 1500, newRating: 1510 });
-
-  const updatedStandings: CfStandings = {
-    contest: { id: contestId, name: "Round 100", startTimeSeconds: 1000, durationSeconds: 7200 },
-    problems: [{ contestId, index: "A", name: "A", tags: [] }],
-    rows: [{
-      party: { contestId, members: [{ handle: cfHandle }], participantType: "CONTESTANT" },
-      rank: 4,
-      points: 1,
-      penalty: 30,
-      problemResults: [{ points: 1, bestSubmissionTimeSeconds: 1200, rejectedAttemptCount: 0 }],
-    }],
-  };
-  db.prepare(
-    `
-    INSERT INTO contest_standings_cache (contest_id, raw_json, fetched_at)
-    VALUES (@contestId, @rawJson, '2026-01-01T00:00:00.000Z')
-  `,
-  ).run({ contestId, rawJson: JSON.stringify(updatedStandings) });
 
   const client = new CorrectionClient();
 
@@ -384,11 +361,13 @@ test("hydrateUserContestResult with force bypasses skip and re-hydrates from sta
     { force: true },
   );
 
-  assert.equal(client.standingsCalls, 0);
+  assert.equal(client.standingsCalls, 1);
+  assert.deepEqual(client.standingsHandles, [cfHandle]);
   const row = db.prepare(
-    "SELECT rank FROM user_contest_results WHERE user_id = @userId AND contest_id = @contestId",
-  ).get({ userId, contestId }) as { rank: number };
-  assert.equal(row.rank, 4);
+    "SELECT rank, standings_checked_at FROM user_contest_results WHERE user_id = @userId AND contest_id = @contestId",
+  ).get({ userId, contestId }) as { rank: number; standings_checked_at: string | null };
+  assert.equal(row.rank, 3);
+  assert.ok(row.standings_checked_at);
   db.close();
 });
 

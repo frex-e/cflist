@@ -44,43 +44,71 @@ export const detectContestCorrections = (
 
 const cacheFetchedAt = (
   db: Db,
+  userId: string,
   contestId: number,
-): { standingsFetchedAt: string | null; ratingChangesFetchedAt: string | null } => {
-  const standings = db
-    .prepare("SELECT fetched_at FROM contest_standings_cache WHERE contest_id = @contestId")
-    .get({ contestId }) as { fetched_at: string } | undefined;
+): {
+  standingsFetchedAt: string | null;
+  ratingChangesFetchedAt: string | null;
+  rated: boolean;
+} | undefined => {
+  const contestResult = db
+    .prepare(
+      `
+      SELECT standings_checked_at, new_rating
+      FROM user_contest_results
+      WHERE user_id = @userId AND contest_id = @contestId
+    `,
+    )
+    .get({ userId, contestId }) as {
+      standings_checked_at: string | null;
+      new_rating: number | null;
+    } | undefined;
+  if (!contestResult) return undefined;
+
   const ratingChanges = db
     .prepare("SELECT fetched_at FROM contest_rating_changes_cache WHERE contest_id = @contestId")
     .get({ contestId }) as { fetched_at: string } | undefined;
 
   return {
-    standingsFetchedAt: standings?.fetched_at ?? null,
+    standingsFetchedAt: contestResult.standings_checked_at,
     ratingChangesFetchedAt: ratingChanges?.fetched_at ?? null,
+    rated: contestResult.new_rating !== null,
   };
 };
 
-export const isContestCacheStale = (db: Db, contestId: number, ttlDays: number): boolean => {
-  const { standingsFetchedAt, ratingChangesFetchedAt } = cacheFetchedAt(db, contestId);
-  if (!standingsFetchedAt && !ratingChangesFetchedAt) return false;
+export const isContestCacheStale = (
+  db: Db,
+  userId: string,
+  contestId: number,
+  ttlDays: number,
+): boolean => {
+  const freshness = cacheFetchedAt(db, userId, contestId);
+  if (!freshness) return false;
 
   const cutoff = new Date(Date.now() - ttlDays * 24 * 60 * 60 * 1000).toISOString();
-  if (!standingsFetchedAt || !ratingChangesFetchedAt) return true;
-  return standingsFetchedAt < cutoff || ratingChangesFetchedAt < cutoff;
+  if (!freshness.standingsFetchedAt || freshness.standingsFetchedAt < cutoff) return true;
+  if (!freshness.rated) return false;
+  return !freshness.ratingChangesFetchedAt || freshness.ratingChangesFetchedAt < cutoff;
 };
 
 export const contestsWithStaleCache = (
   db: Db,
+  userId: string,
   sortedContestIds: number[],
   ttlDays: number = config.contestCacheTtlDays,
   recentCount: number = config.contestCacheRecentCount,
 ): number[] => {
   const contestIdsToCheck = sortedContestIds.slice(0, recentCount);
-  return contestIdsToCheck.filter((contestId) => isContestCacheStale(db, contestId, ttlDays));
+  return contestIdsToCheck.filter((contestId) => isContestCacheStale(db, userId, contestId, ttlDays));
 };
 
-export const invalidateContestCachesForContests = (db: Db, contestIds: Iterable<number>): void => {
+export const invalidateContestCachesForContests = (
+  db: Db,
+  userId: string,
+  contestIds: Iterable<number>,
+): void => {
   for (const contestId of contestIds) {
-    invalidateContestCaches(db, contestId);
+    invalidateContestCaches(db, userId, contestId);
   }
 };
 
@@ -92,7 +120,7 @@ export const collectContestsNeedingRefresh = (
 ): number[] => {
   const refreshContestIds = new Set<number>([
     ...detectContestCorrections(db, userId, ratingsByContestId),
-    ...contestsWithStaleCache(db, sortedContestIds),
+    ...contestsWithStaleCache(db, userId, sortedContestIds),
   ]);
   return [...refreshContestIds];
 };
