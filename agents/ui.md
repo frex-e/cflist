@@ -41,7 +41,7 @@ Server-rendered Hono TSX views under `src/views/`. `filters.js` loads only on `/
 - On Problems, successful sync completion refreshes `#problem-list` and summary via `sync.js`.
 - On Contests, sync completion and hydration polling refresh `#contests-table` from `GET /contests/fragment`. The sync panel sets `HX-Trigger: refreshContestsTable` on successful HTMX panel responses; `sync.js` handles that event plus panel state changes.
 - First visit with no prior user sync shows a banner on Problems and auto-starts sync on first full page load of Problems or Contests.
-- Contest rows show `Loading…` / `Could not load` (with error tooltip) while hydration jobs run or fail.
+- Contest rows keep catalog problem pills visible with an inline `Loading…` spinner while hydration jobs run; failed jobs show `Could not load` with an error tooltip.
 
 ## Settings
 
