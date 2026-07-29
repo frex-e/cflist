@@ -63,8 +63,11 @@ export class CodeforcesClient {
     return this.request<CfRatingChange[]>("/contest.ratingChanges", { contestId: String(contestId) });
   }
 
-  async contestStandings(contestId: number): Promise<CfStandings> {
-    return this.request<CfStandings>("/contest.standings", { contestId: String(contestId) });
+  async contestStandings(contestId: number, handle: string): Promise<CfStandings> {
+    return this.request<CfStandings>("/contest.standings", {
+      contestId: String(contestId),
+      handles: handle,
+    });
   }
 
   private async request<T>(path: string, params: Record<string, string> = {}): Promise<T> {

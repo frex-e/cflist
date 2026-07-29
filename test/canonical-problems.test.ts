@@ -229,7 +229,7 @@ test("migration 8 re-pairs rounds and links canonical ids on upgraded databases"
       )
       .all() as { canonicalId: string }[];
 
-    assert.equal(version.version, 8);
+    assert.equal(version.version, 9);
     assert.equal(pairCount.count, 1);
     assert.equal(sharedIds.length, 1);
     assert.equal(sharedIds[0]?.canonicalId, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");

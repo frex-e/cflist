@@ -8,18 +8,14 @@ import {
 } from "../accepted-problems.js";
 import { CodeforcesClient } from "../client.js";
 import { getCodeforcesClient } from "../shared-client.js";
-import type { CfContest, CfRatingChange } from "../types.js";
+import type { CfContest } from "../types.js";
 import {
   contestEndTime,
   deriveContestProblemResult,
   isUpsolved,
   type ContestProblemResult,
 } from "../contest-results.js";
-import {
-  getCachedStandings,
-  getOrCalculatePerformance,
-  getOrFetchStandings,
-} from "./cache.js";
+import { getOrCalculatePerformance } from "./cache.js";
 import { codeforcesProblemUrl, hasHandle, loadContestsById, now } from "./helpers.js";
 
 const recomputeExistingUpsolves = (
@@ -60,51 +56,6 @@ const recomputeExistingUpsolves = (
       upsolved: upsolved ? 1 : 0,
     });
   }
-};
-
-const shouldSkipFullHydration = async (
-  db: Db,
-  client: CodeforcesClient,
-  userId: string,
-  cfHandle: string,
-  contestId: number,
-  existing: {
-    rank: number | null;
-    old_rating: number | null;
-    new_rating: number | null;
-    rating_delta: number | null;
-    performance: number | null;
-    problem_count: number;
-  },
-  contestsById: Map<number, CfContest>,
-  accepted: Map<string, AcceptedProblem>,
-): Promise<boolean> => {
-  const cachedStandings = getCachedStandings(db, contestId);
-  const standingsProblemCount = cachedStandings?.problems.length ?? 0;
-  if (!cachedStandings || existing.problem_count < standingsProblemCount) return false;
-
-  const checkedAt = now();
-  const needsPerformance = existing.old_rating !== null && existing.new_rating !== null && existing.performance === null && existing.rank !== 1;
-  const performance = needsPerformance
-    ? await getOrCalculatePerformance(db, client, userId, contestId, cfHandle)
-    : existing.performance;
-
-  db.prepare(
-    `
-    UPDATE user_contest_results
-    SET
-      performance = @performance,
-      last_checked_at = @checkedAt
-    WHERE user_id = @userId AND contest_id = @contestId
-  `,
-  ).run({
-    userId,
-    contestId,
-    performance,
-    checkedAt,
-  });
-  recomputeExistingUpsolves(db, userId, contestId, contestsById.get(contestId), accepted);
-  return true;
 };
 
 const importStandingsProblems = (
@@ -162,7 +113,6 @@ const computeProblemResults = (
 const persistContestHydration = (
   db: Db,
   userId: string,
-  cfHandle: string,
   contestId: number,
   row: import("../types.js").CfStandingsRow | undefined,
   existingRatingChange: { rank: number | null; oldRating: number; newRating: number } | undefined,
@@ -182,7 +132,8 @@ const persistContestHydration = (
       new_rating,
       rating_delta,
       performance,
-      last_checked_at
+      last_checked_at,
+      standings_checked_at
     ) VALUES (
       @userId,
       @contestId,
@@ -194,6 +145,7 @@ const persistContestHydration = (
       @newRating,
       @ratingDelta,
       @performance,
+      @checkedAt,
       @checkedAt
     )
     ON CONFLICT(user_id, contest_id) DO UPDATE SET
@@ -205,7 +157,8 @@ const persistContestHydration = (
       new_rating = excluded.new_rating,
       rating_delta = excluded.rating_delta,
       performance = excluded.performance,
-      last_checked_at = excluded.last_checked_at
+      last_checked_at = excluded.last_checked_at,
+      standings_checked_at = excluded.standings_checked_at
   `);
   const deleteContestProblemResults = db.prepare(`
     DELETE FROM user_contest_problem_results
@@ -279,10 +232,9 @@ export const hydrateUserContestResult = async (
   cfHandle: string,
   contestId: number,
   client: CodeforcesClient = getCodeforcesClient(),
-  options: { force?: boolean } = {},
+  _options: { force?: boolean } = {},
 ): Promise<boolean> => {
   const contestsById = loadContestsById(db);
-  const accepted = acceptedProblemsFromDb(db, userId);
   const checkedAt = now();
 
   const existing = db
@@ -292,14 +244,7 @@ export const hydrateUserContestResult = async (
         rank,
         old_rating,
         new_rating,
-        rating_delta,
-        performance,
-        (
-          SELECT COUNT(*)
-          FROM user_contest_problem_results ucpr
-          WHERE ucpr.user_id = ucr.user_id
-            AND ucpr.contest_id = ucr.contest_id
-        ) AS problem_count
+        rating_delta
       FROM user_contest_results ucr
       WHERE user_id = @userId AND contest_id = @contestId
     `,
@@ -309,23 +254,7 @@ export const hydrateUserContestResult = async (
       old_rating: number | null;
       new_rating: number | null;
       rating_delta: number | null;
-      performance: number | null;
-      problem_count: number;
     } | undefined;
-
-  if (existing && existing.problem_count > 0 && !options.force) {
-    const skipped = await shouldSkipFullHydration(
-      db,
-      client,
-      userId,
-      cfHandle,
-      contestId,
-      existing,
-      contestsById,
-      accepted,
-    );
-    if (skipped) return true;
-  }
 
   const existingRatingChange = existing && existing.old_rating !== null && existing.new_rating !== null
     ? {
@@ -337,7 +266,7 @@ export const hydrateUserContestResult = async (
   const performance = existingRatingChange && existingRatingChange.rank !== 1
     ? await getOrCalculatePerformance(db, client, userId, contestId, cfHandle)
     : null;
-  const standings = await getOrFetchStandings(db, client, contestId);
+  const standings = await client.contestStandings(contestId, cfHandle);
   const knownProblemRows = db
     .prepare(
       `
@@ -370,7 +299,6 @@ export const hydrateUserContestResult = async (
   persistContestHydration(
     db,
     userId,
-    cfHandle,
     contestId,
     row,
     existingRatingChange,
