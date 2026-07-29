@@ -10,6 +10,7 @@
 - One Node process plus one persisted SQLite file. If multiple instances ever run, move contest queue draining to a separate command/cron or add a database lock.
 - `/healthz` returns `{ ok: true }` when the DB is reachable; use it as a liveness/readiness probe.
 - The process handles `SIGTERM`/`SIGINT`: stops background sync timers, closes the HTTP server, then closes the DB.
+- Request logs include mutations, failed reads, and reads taking at least one second. Routine successful `GET`/`HEAD`/`OPTIONS` traffic and health checks are suppressed; health-check failures have a dedicated error log.
 
 ## Backups
 
