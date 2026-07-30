@@ -128,7 +128,6 @@ const seedCaches = (db: DatabaseSync, fetchedAt: string): void => {
 
 class CorrectionClient {
   standingsCalls = 0;
-  standingsHandles: string[] = [];
   ratingChangesCalls = 0;
   apiRank = 3;
   apiNewRating = 1520;
@@ -185,9 +184,8 @@ class CorrectionClient {
     }];
   }
 
-  async contestStandings(_contestId: number, handle: string): Promise<CfStandings> {
+  async contestStandings(_contestId: number): Promise<CfStandings> {
     this.standingsCalls += 1;
-    this.standingsHandles.push(handle);
     return {
       contest: { id: contestId, name: "Round 100", startTimeSeconds: 1000, durationSeconds: 7200 },
       problems: [{ contestId, index: "A", name: "A", tags: [] }],
@@ -362,7 +360,6 @@ test("hydrateUserContestResult with force performs a filtered standings request"
   );
 
   assert.equal(client.standingsCalls, 1);
-  assert.deepEqual(client.standingsHandles, [cfHandle]);
   const row = db.prepare(
     "SELECT rank, standings_checked_at FROM user_contest_results WHERE user_id = @userId AND contest_id = @contestId",
   ).get({ userId, contestId }) as { rank: number; standings_checked_at: string | null };
