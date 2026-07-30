@@ -27,6 +27,16 @@ Do not reintroduce an uncompressed `contest_standings_cache` of full API payload
 
 If an old local DB still has leftover free pages after dropping that cache, reclaim with offline `VACUUM` (stop the app first): `sqlite3 data/cflist.sqlite 'VACUUM;'`.
 
+## Manual demos and screenshots
+
+Prefer the shared test account over fake DB rows when showing a new feature or UI:
+
+1. Ensure the seed ran (`npm run seed:test-user` if needed).
+2. Sign in as `test@cflist.local` / `cflist-test-password` (or the configured `TEST_USER_*` overrides).
+3. Open Problems or Contests so background sync can pull real Codeforces data for handle `inj`.
+
+Do not inject synthetic problems, contests, standings, or solved overrides into SQLite just for a walkthrough or recording. Hand-written rows often miss real column shapes, sync timing, estimated ratings, and contest hydration behavior. Keep synthetic fixtures in automated tests (`npm test`); use live synced data for agent/manual demos.
+
 ## Design tradeoffs
 
 - Server-rendered and URL-backed; avoid a client-side app model unless the UI clearly needs it.
