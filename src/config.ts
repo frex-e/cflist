@@ -16,6 +16,24 @@ export const resolveAuthGitHubOnly = (
   return env.NODE_ENV === "production";
 };
 
+/** Comma-separated emails allowed to use /admin/catalog. Empty = nobody. */
+export const resolveAdminEmails = (
+  env: NodeJS.ProcessEnv = process.env,
+): string[] =>
+  (env.ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+
+export const isAdminEmail = (
+  email: string,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean => {
+  const allowlist = resolveAdminEmails(env);
+  if (allowlist.length === 0) return false;
+  return allowlist.includes(email.trim().toLowerCase());
+};
+
 export const DEV_AUTH_SECRET = "development-only-change-me-32-chars-min";
 
 export const config = {
@@ -41,6 +59,7 @@ export const config = {
   githubClientId: process.env.GITHUB_CLIENT_ID,
   githubClientSecret: process.env.GITHUB_CLIENT_SECRET,
   authGitHubOnly: resolveAuthGitHubOnly(),
+  adminEmails: resolveAdminEmails(),
 };
 
 export const validateProductionConfig = (): void => {

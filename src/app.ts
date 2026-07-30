@@ -9,6 +9,7 @@ import { layout, configureLayoutAuth } from "./views/layout.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerContestsRoutes } from "./routes/contests.js";
 import { registerProblemsRoutes } from "./routes/problems.js";
+import { registerAdminCatalogRoutes } from "./routes/admin-catalog.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerSyncRoutes } from "./routes/sync.js";
 
@@ -284,6 +285,8 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
     requireUser: requireCompleteUser,
     runSyncInBackground,
   });
+
+  registerAdminCatalogRoutes(app, { db });
 
   app.notFound((c) => c.html(notFoundPage(c.get("user")), 404));
 

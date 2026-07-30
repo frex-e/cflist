@@ -1,5 +1,6 @@
 import type { Child } from "hono/jsx";
 import type { AuthUser } from "../auth.js";
+import { isAdminEmail } from "../config.js";
 import { layout } from "./layout.js";
 import { PageHero } from "./page-hero.js";
 import { render } from "./render.js";
@@ -46,6 +47,13 @@ export const settingsPage = (options: SettingsPageOptions): string => {
                 </dd>
               </div>
             </dl>
+            {isAdminEmail(options.user.email) ? (
+              <p>
+                <a href="/admin/catalog">Catalog repair</a> (admin)
+              </p>
+            ) : (
+              ""
+            )}
           </section>
 
           <section class="settings-section">

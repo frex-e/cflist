@@ -67,6 +67,19 @@ test("resolveAuthGitHubOnly defaults to true in production", () => {
   );
 });
 
+test("resolveAdminEmails and isAdminEmail", () => {
+  assert.deepEqual(resolveAdminEmails({}), []);
+  assert.deepEqual(
+    resolveAdminEmails({ ADMIN_EMAILS: "Ops@Example.com, other@x.com" }),
+    ["ops@example.com", "other@x.com"],
+  );
+  assert.equal(
+    isAdminEmail("ops@example.com", { ADMIN_EMAILS: "Ops@Example.com" }),
+    true,
+  );
+  assert.equal(isAdminEmail("nope@example.com", { ADMIN_EMAILS: "Ops@Example.com" }), false);
+});
+
 test("validateProductionConfig passes with valid production env", () => {
   const originalEnv = { ...process.env };
   try {

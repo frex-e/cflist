@@ -37,6 +37,12 @@ When adding or changing a visible UI element, demonstrate it in the running app 
 - HTMX infinite-scroll sentinel appends `/contests/fragment?append=1` pages at the bottom (fixed page size 50). `infinite-scroll.js` loads the next page when the user scrolls it into view (one page per scroll position, no auto-cascade).
 - Cumulative table label during scroll (e.g. `Showing 1-50 of 237`). Filter changes reset to page 1.
 
+## Admin catalog repair
+
+- `/admin/catalog` is env-gated (`ADMIN_EMAILS`). Non-admins get 404; unsigned users redirect to sign-in.
+- Soft repair only: clear estimates, drop rating-changes cache, force all-user contest rehydration. Lookup by contest id or problem key with typed confirmation.
+- Distinct from `/admin/sync` (per-user sync panel). Allowlisted admins also see a Catalog repair link on Settings.
+
 ## Sync panel
 
 - Shared `SyncPanel` on Problems and Contests; `POST /admin/sync` starts background sync and returns panel HTML.
