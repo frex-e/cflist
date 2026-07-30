@@ -5,6 +5,7 @@ import {
   estimateMissingProblemRatings,
   kickContestSyncQueue,
 } from "../cf/sync.js";
+import { getCodeforcesClient } from "../cf/shared-client.js";
 import { isAdminEmail } from "../config.js";
 import type { Db } from "../db/connection.js";
 import { firstString } from "../http/forms.js";
@@ -160,7 +161,7 @@ export const registerAdminCatalogRoutes = (
       clearContestEstimates(db, contestId);
     }
 
-    void estimateMissingProblemRatings(db).catch((error) => {
+    void estimateMissingProblemRatings(db, getCodeforcesClient()).catch((error: unknown) => {
       console.error("Catalog repair estimate pass failed:", error);
     });
 

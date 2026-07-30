@@ -1,5 +1,6 @@
 export {
   acceptedProblemsFromSubmissions,
+  estimateMissingProblemRatings,
   hydrateUserContestResult,
   kickContestSyncQueue,
   refreshUserContestDetails,

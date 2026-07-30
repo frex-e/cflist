@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   DEV_AUTH_SECRET,
+  isAdminEmail,
+  resolveAdminEmails,
   resolveAuthGitHubOnly,
   validateProductionConfig,
 } from "../src/config.js";
