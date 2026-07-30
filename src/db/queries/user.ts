@@ -3,7 +3,14 @@ import type { FilterOptions } from "./types.js";
 
 export const getFilterOptions = (db: Db): FilterOptions => {
   const ratings = db
-    .prepare("SELECT DISTINCT rating FROM problems WHERE rating IS NOT NULL ORDER BY rating ASC")
+    .prepare(
+      `
+      SELECT DISTINCT COALESCE(rating, estimated_rating) AS rating
+      FROM problems
+      WHERE COALESCE(rating, estimated_rating) IS NOT NULL
+      ORDER BY rating ASC
+    `,
+    )
     .all()
     .map((row) => (row as { rating: number }).rating);
 

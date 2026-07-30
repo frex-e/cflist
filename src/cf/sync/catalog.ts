@@ -11,6 +11,7 @@ import { CodeforcesClient } from "../client.js";
 import type { CfProblem } from "../types.js";
 import { getCodeforcesClient } from "../shared-client.js";
 import { linkCanonicalIdsByRoundPairs, refreshRoundPairs } from "./canonical-problems.js";
+import { estimateMissingProblemRatings } from "./estimate-problem-ratings.js";
 import { codeforcesProblemUrl, now } from "./helpers.js";
 import { syncState } from "./state.js";
 
@@ -208,12 +209,14 @@ const runProblemMetadataRefresh = async (db: Db, client: CodeforcesClient): Prom
       }
     });
 
+    const estimatedCount = await estimateMissingProblemRatings(db, client);
+
     syncState.lastCatalogFinishedAt = now();
     finishSyncRun(
       db,
       syncRunId,
       "success",
-      `Checked ${needing.length} problems needing metadata; updated ${updatedCount}.`,
+      `Checked ${needing.length} problems needing metadata; updated ${updatedCount}; estimated ${estimatedCount}.`,
       syncState.lastCatalogFinishedAt,
     );
   } catch (error) {

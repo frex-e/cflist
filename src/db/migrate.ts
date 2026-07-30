@@ -82,6 +82,8 @@ const SCHEMA_SQL = `
     type TEXT,
     points REAL,
     rating INTEGER,
+    estimated_rating INTEGER,
+    estimated_rating_at TEXT,
     solved_count INTEGER,
     tags_json TEXT NOT NULL,
     url TEXT NOT NULL,

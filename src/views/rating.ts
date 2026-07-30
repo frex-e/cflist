@@ -38,6 +38,26 @@ export const ratingTitle = (rating: number | null): RatingTitle => {
   return { name: tier.name, className: tier.dotClass, textClassName: tier.textClass };
 };
 
+/** Official rating when present; otherwise clist-style estimate. */
+export const effectiveProblemRating = (
+  rating: number | null,
+  estimatedRating: number | null | undefined,
+): number | null => rating ?? estimatedRating ?? null;
+
+export const isEstimatedProblemRating = (
+  rating: number | null,
+  estimatedRating: number | null | undefined,
+): boolean => rating === null && estimatedRating != null;
+
+export const formatProblemRating = (
+  rating: number | null,
+  estimatedRating: number | null | undefined,
+): string => {
+  if (rating !== null) return String(rating);
+  if (estimatedRating != null) return `~${estimatedRating}`;
+  return "";
+};
+
 export const chartBands = (): Pick<RatingTier, "name" | "min" | "max" | "chartClass">[] => {
   return RATING_TIERS.map((tier) => ({
     name: tier.name,

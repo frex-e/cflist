@@ -16,6 +16,7 @@ import {
   type ContestProblemResult,
 } from "../contest-results.js";
 import { getOrCalculatePerformance } from "./cache.js";
+import { maybeEstimateProblemRatingsAfterHydration } from "./estimate-problem-ratings.js";
 import { codeforcesProblemUrl, hasHandle, loadContestsById, now } from "./helpers.js";
 
 const recomputeExistingUpsolves = (
@@ -306,6 +307,17 @@ export const hydrateUserContestResult = async (
     problemResults,
     checkedAt,
   );
+
+  await maybeEstimateProblemRatingsAfterHydration(
+    db,
+    client,
+    contestId,
+    standings,
+    // Prefer fresh standings contest metadata over a possibly stale DB row
+    // (phase/duration may still say CODING after the round finished).
+    standings.contest ?? contest,
+  );
+
   return true;
 };
 

@@ -20,7 +20,10 @@ export type ProblemRow = {
   contest_id: number;
   problem_index: string;
   name: string;
+  /** Official Codeforces rating when present. */
   rating: number | null;
+  /** Clist-style estimate used only when official rating is null. */
+  estimated_rating: number | null;
   solved_count: number | null;
   tags_json: string;
   url: string;
@@ -63,6 +66,7 @@ export type ContestProblemResultRow = {
   name: string;
   url: string;
   rating: number | null;
+  estimated_rating: number | null;
   solved_in_contest: number;
   upsolved: number;
   points: number | null;
