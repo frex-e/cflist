@@ -151,7 +151,7 @@ test("status control cycles unsolved to skipped to solved", async () => {
     assert.equal(skipResponse.status, 200);
     assert.match(skipHtml, /problem-row skipped-row/);
     assert.match(skipHtml, /status status-button skipped/);
-    assert.match(skipHtml, /skipped for tourist/);
+    assert.match(skipHtml, /1 skipped, 0 unsolved for tourist/);
 
     const solvedResponse = await app.request("/problems/1/A/override", {
       method: "POST",
