@@ -15,9 +15,11 @@ export {
   problemCount,
   latestSuccessfulSyncAgeMs,
   setSolvedOverride,
+  setProblemOverride,
   getDefaultFilterQuery,
   setDefaultFilterQuery,
 } from "./user.js";
+export type { LocalProblemStatus } from "./user.js";
 export {
   getContestSyncJobCounts,
   getContestSyncJobsByContest,

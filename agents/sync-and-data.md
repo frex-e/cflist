@@ -10,11 +10,13 @@ Users sign in with local email/password through Better Auth. Each user stores a 
 Codeforces accepted submission status OR local solved override
 ```
 
-- A local override may mark an unsolved problem as solved.
+- A local override may mark an unsolved problem as solved or skipped.
+- Local status cycles on the problems list: unsolved → skipped → solved → unsolved.
+- Skipped and manual solved are mutually exclusive; Codeforces-solved wins and stays non-clickable.
 - A local override can be cleared, which falls back to Codeforces status.
-- Manual overrides are additive; they do not represent local "unsolved" state.
-- API-solved rows are non-clickable in the list.
-- Overrides are keyed by `(user_id, canonical_id)` — one toggle applies to all contest placements of the same task.
+- Manual overrides are additive; they do not represent local "unsolved" force-state.
+- Overrides are keyed by `(user_id, canonical_id)` — one toggle applies to all contest placements of the same task (`solved_override` and `skipped` columns).
+- Contest pills show skipped as yellow when the problem is neither solved in-contest nor upsolved; mark/unmark skipped only from the problems list.
 
 ## Canonical problem identity
 

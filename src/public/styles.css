@@ -817,6 +817,14 @@ tbody tr.solved-row:hover td {
   background: #e3f3e9;
 }
 
+tbody tr.skipped-row td {
+  background: #fbf6e0;
+}
+
+tbody tr.skipped-row:hover td {
+  background: #f3ebd0;
+}
+
 td:first-child,
 th:first-child {
   width: 34px;
@@ -1300,6 +1308,16 @@ td.tags {
   background: #cce6f0;
 }
 
+.contest-problem-pill.skipped {
+  border-color: #d4b96a;
+  background: #f5edd4;
+  color: #6b5210;
+}
+
+.contest-problem-pill.skipped:hover {
+  background: #efe4c4;
+}
+
 .contest-problem-pill.unsolved {
   border-color: #c8c8c4;
   background: #ececea;
@@ -1364,6 +1382,19 @@ button.status-button {
 
 .status.manual-solved:hover {
   background: #0b6542;
+}
+
+.status.skipped {
+  border: 1px solid #8a6a1a;
+  background: #e8c547;
+  color: #5c4508;
+  box-shadow:
+    0 0 0 2px #ffffff,
+    0 0 0 4px rgba(212, 185, 106, 0.45);
+}
+
+.status.skipped:hover {
+  background: #d9b73c;
 }
 
 .status.unsolved {

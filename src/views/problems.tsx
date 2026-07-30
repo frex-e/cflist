@@ -32,7 +32,7 @@ const Option = (props: { value: string | number; label: string; selected?: boole
 export { problemListQuery, problemListUrl } from "./problems/url.js";
 
 export const problemSummaryText = ({ result, filters }: ProblemsPageOptions): string => {
-  return `${formatNumber(result.total)} matched, ${formatNumber(result.solved)} solved, ${formatNumber(result.unsolved)} unsolved for ${filters.cfHandle}`;
+  return `${formatNumber(result.total)} matched, ${formatNumber(result.solved)} solved, ${formatNumber(result.skipped)} skipped, ${formatNumber(result.unsolved)} unsolved for ${filters.cfHandle}`;
 };
 
 export const problemSummaryOutOfBand = (options: ProblemsPageOptions): string => {
@@ -55,7 +55,14 @@ const tagsForRow = (row: ProblemRow): string[] => {
 const sourceLabel = (row: ProblemRow): string => {
   if (row.solved_override === 1) return "local solved";
   if (row.cf_solved === 1) return "codeforces solved";
+  if (row.skipped === 1) return "skipped";
   return "unsolved";
+};
+
+const nextLocalStatus = (row: ProblemRow): "" | "skipped" | "solved" => {
+  if (row.solved_override === 1) return "";
+  if (row.skipped === 1) return "solved";
+  return "skipped";
 };
 
 const StatusControl = (props: { row: ProblemRow }) => {
@@ -71,18 +78,33 @@ const StatusControl = (props: { row: ProblemRow }) => {
   }
 
   const isManualSolved = row.solved_override === 1;
+  const isSkipped = row.skipped === 1 && !isManualSolved;
+  const nextStatus = nextLocalStatus(row);
+  const buttonClass = isManualSolved
+    ? "solved manual-solved"
+    : isSkipped
+      ? "skipped"
+      : "unsolved";
+  const title = isManualSolved
+    ? "Clear status (unsolved)"
+    : isSkipped
+      ? "Mark solved"
+      : "Mark skipped";
+
   return (
     <form class="status-form" method="post" action={action} hx-post={action} hx-target="#problem-list" hx-swap="outerHTML">
-      <input type="hidden" name="solvedOverride" value={isManualSolved ? "" : "1"} />
-      <button
-        class={`status status-button ${isManualSolved ? "solved manual-solved" : "unsolved"}`}
-        type="submit"
-        title={isManualSolved ? "Undo manual solved mark" : "Mark solved"}
-      >
-        {isManualSolved ? "✓" : ""}
+      <input type="hidden" name="localStatus" value={nextStatus} />
+      <button class={`status status-button ${buttonClass}`} type="submit" title={title}>
+        {isManualSolved ? "✓" : isSkipped ? "–" : ""}
       </button>
     </form>
   );
+};
+
+const problemRowClass = (row: ProblemRow): string => {
+  if (row.effective_solved) return "problem-row solved-row";
+  if (row.skipped === 1) return "problem-row skipped-row";
+  return "problem-row";
 };
 
 const ProblemRow = (props: { row: ProblemRow; showTags: boolean }) => {
@@ -97,7 +119,7 @@ const ProblemRow = (props: { row: ProblemRow; showTags: boolean }) => {
 
   return (
     <tr
-      class={row.effective_solved ? "problem-row solved-row" : "problem-row"}
+      class={problemRowClass(row)}
       data-problem-row
       data-contest-id={row.contest_id}
       data-problem-index={row.problem_index}
@@ -254,6 +276,7 @@ const FilterForm = ({ filters, options }: ProblemsPageOptions) => {
         <select name="solved">
           <Option value="all" label="All" selected={filters.solved === "all"} />
           <Option value="solved" label="Solved" selected={filters.solved === "solved"} />
+          <Option value="skipped" label="Skipped" selected={filters.solved === "skipped"} />
           <Option value="unsolved" label="Unsolved" selected={filters.solved === "unsolved"} />
         </select>
       </label>

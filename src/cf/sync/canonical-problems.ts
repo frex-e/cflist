@@ -108,7 +108,12 @@ const unifyCanonicalIds = (db: Db, targetId: string, sourceId: string): void => 
   const sourceOverrides = db
     .prepare(
       `
-      SELECT user_id AS userId, solved_override AS solvedOverride, note, updated_at AS updatedAt
+      SELECT
+        user_id AS userId,
+        solved_override AS solvedOverride,
+        skipped,
+        note,
+        updated_at AS updatedAt
       FROM user_problem_overrides
       WHERE canonical_id = @sourceId
     `,
@@ -116,6 +121,7 @@ const unifyCanonicalIds = (db: Db, targetId: string, sourceId: string): void => 
     .all({ sourceId }) as {
     userId: string;
     solvedOverride: number | null;
+    skipped: number;
     note: string | null;
     updatedAt: string;
   }[];
@@ -129,6 +135,7 @@ const unifyCanonicalIds = (db: Db, targetId: string, sourceId: string): void => 
     UPDATE user_problem_overrides
     SET
       solved_override = @solvedOverride,
+      skipped = @skipped,
       note = @note,
       updated_at = @updatedAt
     WHERE user_id = @userId AND canonical_id = @targetId
@@ -138,14 +145,18 @@ const unifyCanonicalIds = (db: Db, targetId: string, sourceId: string): void => 
     WHERE user_id = @userId AND canonical_id = @sourceId
   `);
   const findTargetOverride = db.prepare(`
-    SELECT solved_override AS solvedOverride, note, updated_at AS updatedAt
+    SELECT
+      solved_override AS solvedOverride,
+      skipped,
+      note,
+      updated_at AS updatedAt
     FROM user_problem_overrides
     WHERE user_id = @userId AND canonical_id = @targetId
   `);
 
   for (const source of sourceOverrides) {
     const target = findTargetOverride.get({ userId: source.userId, targetId }) as
-      | { solvedOverride: number | null; note: string | null; updatedAt: string }
+      | { solvedOverride: number | null; skipped: number; note: string | null; updatedAt: string }
       | undefined;
 
     if (!target) {
@@ -157,6 +168,13 @@ const unifyCanonicalIds = (db: Db, targetId: string, sourceId: string): void => 
       source.solvedOverride === 1 || target.solvedOverride === 1
         ? 1
         : (source.solvedOverride ?? target.solvedOverride);
+    // Solved wins over skipped when either side is marked solved.
+    const skipped =
+      solvedOverride === 1
+        ? 0
+        : source.skipped === 1 || target.skipped === 1
+          ? 1
+          : 0;
     const note =
       source.updatedAt >= target.updatedAt
         ? (source.note ?? target.note)
@@ -168,6 +186,7 @@ const unifyCanonicalIds = (db: Db, targetId: string, sourceId: string): void => 
       userId: source.userId,
       targetId,
       solvedOverride,
+      skipped,
       note,
       updatedAt,
     });
