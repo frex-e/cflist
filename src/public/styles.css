@@ -818,11 +818,11 @@ tbody tr.solved-row:hover td {
 }
 
 tbody tr.skipped-row td {
-  background: #fbf6e0;
+  background: #f5f1e3;
 }
 
 tbody tr.skipped-row:hover td {
-  background: #f3ebd0;
+  background: #ebe6d6;
 }
 
 td:first-child,
@@ -1386,15 +1386,15 @@ button.status-button {
 
 .status.skipped {
   border: 1px solid #8a6a1a;
-  background: #e8c547;
+  background: #ffd400;
   color: #5c4508;
   box-shadow:
     0 0 0 2px #ffffff,
-    0 0 0 4px rgba(212, 185, 106, 0.45);
+    0 0 0 4px rgba(201, 162, 39, 0.45);
 }
 
 .status.skipped:hover {
-  background: #d9b73c;
+  background: #f0c400;
 }
 
 .status.unsolved {
