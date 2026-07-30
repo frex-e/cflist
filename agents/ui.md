@@ -40,6 +40,8 @@ When adding or changing a visible UI element, demonstrate it in the running app 
 ## Sync panel
 
 - Shared `SyncPanel` on Problems and Contests; `POST /admin/sync` starts background sync and returns panel HTML.
+- Manual Sync is rate-limited to one successful start per `USER_SYNC_INTERVAL_MINUTES` (default 60). Cooldown uses the latest successful `codeforces:user` `sync_runs.finished_at`; failed syncs can be retried immediately. First-time initial sync, handle change, and reset CF data bypass this limit.
+- While cooldown is active the Sync button is disabled and the panel shows when the next sync is available.
 - Panel polls `GET /admin/sync/panel` every 3s while user sync or contest hydration is active.
 - On Problems, successful sync completion refreshes `#problem-list` and summary via `sync.js`.
 - On Contests, sync completion and hydration polling refresh `#contests-table` from `GET /contests/fragment`. The sync panel sets `HX-Trigger: refreshContestsTable` on successful HTMX panel responses; `sync.js` handles that event plus panel state changes.

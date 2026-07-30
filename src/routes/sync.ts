@@ -2,6 +2,8 @@ import type { Context, Hono } from "hono";
 import type { AuthUser, AuthSession } from "../auth.js";
 import type { Db } from "../db/connection.js";
 import { requeueFailedContestJobsForUser, syncState } from "../cf/sync.js";
+import { config } from "../config.js";
+import { getManualUserSyncCooldown } from "../db/queries.js";
 import { firstString } from "../http/forms.js";
 import { safeReturnTo } from "../http/return-to.js";
 import { buildSyncPanelOptions } from "../http/sync-panel.js";
@@ -52,10 +54,20 @@ export const registerSyncRoutes = (
     const refreshPage = refreshPageFrom(firstString(form.refreshPage));
     const alreadyRunning = syncState.userRunning.has(user.id);
     requeueFailedContestJobsForUser(db, user.id);
-    const started = alreadyRunning ? false : runSyncInBackground(user);
+
+    const intervalMs = Math.max(0, config.userSyncIntervalMinutes) * 60 * 1000;
+    const cooldown = getManualUserSyncCooldown(db, user.id, intervalMs);
+    const rateLimited = !alreadyRunning && !cooldown.allowed;
+    const started = alreadyRunning || rateLimited ? false : runSyncInBackground(user);
     if (!isHtmx(c)) return c.redirect(returnTo);
 
-    const notice = alreadyRunning || !started ? "already-running" : undefined;
+    const notice = alreadyRunning
+      ? "already-running"
+      : rateLimited || !started
+        ? rateLimited
+          ? "rate-limited"
+          : "already-running"
+        : undefined;
 
     const options = buildSyncPanelOptions(db, user, returnTo, refreshPage, notice);
     return c.html(syncPanelHtml(options), 200, syncPanelResponseHeaders(options));

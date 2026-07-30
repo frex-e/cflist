@@ -24,6 +24,7 @@ export const config = {
   dbPath: process.env.DB_PATH ?? path.join(process.cwd(), "data", "cflist.sqlite"),
   syncIntervalMinutes: intFromEnv("SYNC_INTERVAL_MINUTES", 360),
   syncUnratedIntervalMinutes: intFromEnv("SYNC_UNRATED_INTERVAL_MINUTES", 60),
+  userSyncIntervalMinutes: intFromEnv("USER_SYNC_INTERVAL_MINUTES", 60),
   contestCacheTtlDays: intFromEnv("CONTEST_CACHE_TTL_DAYS", 14),
   contestCacheRecentCount: intFromEnv("CONTEST_CACHE_RECENT_COUNT", 10),
   authSecret:

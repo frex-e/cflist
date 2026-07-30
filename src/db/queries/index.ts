@@ -12,12 +12,14 @@ export {
   getLatestSyncRun,
   getLatestUserSyncRun,
   hasSuccessfulUserSyncRun,
+  getManualUserSyncCooldown,
   problemCount,
   latestSuccessfulSyncAgeMs,
   setSolvedOverride,
   getDefaultFilterQuery,
   setDefaultFilterQuery,
 } from "./user.js";
+export type { ManualUserSyncCooldown } from "./user.js";
 export {
   getContestSyncJobCounts,
   getContestSyncJobsByContest,
