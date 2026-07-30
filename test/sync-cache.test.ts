@@ -35,7 +35,7 @@ test("contestStandings requests only contestId for regular contests", async () =
     const url = new URL(requestedUrl);
     assert.equal(url.pathname, "/api/contest.standings");
     assert.equal(url.searchParams.get("contestId"), "100");
-    assert.equal([...url.searchParams.keys()], ["contestId"]);
+    assert.deepEqual([...url.searchParams.keys()], ["contestId"]);
   } finally {
     globalThis.fetch = originalFetch;
   }

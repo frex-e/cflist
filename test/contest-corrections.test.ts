@@ -343,7 +343,7 @@ test("syncUserStatus invalidates caches and re-fetches standings after Codeforce
   }
 });
 
-test("hydrateUserContestResult with force performs a filtered standings request", async () => {
+test("hydrateUserContestResult with force re-fetches standings and filters locally", async () => {
   const db = new DatabaseSync(":memory:");
   setupBase(db);
   seedStoredContestResult(db, { rank: 2, oldRating: 1500, newRating: 1510 });
