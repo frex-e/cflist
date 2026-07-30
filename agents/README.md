@@ -7,4 +7,4 @@ Implementation notes for CFList. Update the relevant file when changes touch tha
 | [codeforces.md](./codeforces.md) | API endpoints, rate limits, excluded sources |
 | [sync-and-data.md](./sync-and-data.md) | Auth keys, solved state, tables, sync pipeline |
 | [ui.md](./ui.md) | Problems/contests UI, filters, HTMX |
-| [ops.md](./ops.md) | Deployment env vars, demos via test account, design tradeoffs |
+| [ops.md](./ops.md) | Deployment env vars, required feature/UI demos via test account, design tradeoffs |
