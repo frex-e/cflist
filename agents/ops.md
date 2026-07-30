@@ -29,7 +29,7 @@ If an old local DB still has leftover free pages after dropping that cache, recl
 
 ## Feature / UI demonstrations
 
-When adding a new feature or UI element, demonstrate it in the running app before considering the work done. Prefer a short screen recording that uses the feature end-to-end; use screenshots when the change is static. Attach or link the artifacts in the PR/walkthrough summary.
+When adding a new feature or UI element, demonstrate it in the running app before considering the work done. A short screen recording or a screenshot that shows the feature in use is fine. Attach or link the artifacts in the PR/walkthrough summary.
 
 Use the shared test account and live synced data (not fake DB rows):
 
