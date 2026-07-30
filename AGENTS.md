@@ -37,7 +37,7 @@ Detailed notes live in [`agents/`](./agents/README.md) by topic (Codeforces API,
 - Import contest-scoped problems from standings when `problemset.problems` omits them.
 - If a submission-discovered contest lacks a matching standings row, keep rank/score blank but use accepted submissions for contest problem pills.
 - Key app-owned user data by auth user id, not Codeforces handle.
-- Official problem `rating` wins when present; otherwise show clist-style `estimated_rating` (only after contest end + rating changes). Never estimate during a live contest.
+- Official problem `rating` wins when present; otherwise show clist-style `estimated_rating` (only after contest end + rating changes). Cap estimates at the max official rating tag. Shared Div. 1/Div. 2 placements use a combined-field estimate (same value on both rows). Never estimate during a live contest.
 - When demonstrating a new feature or UI, prefer signing in as the shared test account and syncing real Codeforces data over injecting fake rows into the DB.
 - Run `npm test` after behavior changes.
 
