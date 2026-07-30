@@ -12,7 +12,7 @@ const recentCatalogSyncAt = new Date(Date.now() - 60_000).toISOString();
 const userId = "user-1";
 const cfHandle = "inj";
 
-test("contestStandings sends the requested handle filter", async () => {
+test("contestStandings requests only contestId for regular contests", async () => {
   const originalFetch = globalThis.fetch;
   let requestedUrl = "";
   globalThis.fetch = async (input) => {
@@ -31,11 +31,11 @@ test("contestStandings sends the requested handle filter", async () => {
   };
 
   try {
-    await new CodeforcesClient(0).contestStandings(100, cfHandle);
+    await new CodeforcesClient(0).contestStandings(100);
     const url = new URL(requestedUrl);
     assert.equal(url.pathname, "/api/contest.standings");
     assert.equal(url.searchParams.get("contestId"), "100");
-    assert.equal(url.searchParams.get("handles"), cfHandle);
+    assert.deepEqual([...url.searchParams.keys()], ["contestId"]);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -68,7 +68,6 @@ const insertUser = (db: DatabaseSync): void => {
 class FakeClient {
   ratingChangesCalls = 0;
   standingsCalls = 0;
-  standingsHandles: string[] = [];
   failStandings = false;
 
   async contests(): Promise<CfContest[]> {
@@ -153,9 +152,8 @@ class FakeClient {
     ];
   }
 
-  async contestStandings(_contestId = 100, handle = ""): Promise<CfStandings> {
+  async contestStandings(_contestId = 100): Promise<CfStandings> {
     this.standingsCalls += 1;
-    this.standingsHandles.push(handle);
     if (this.failStandings) throw new Error("standings failed");
     return {
       contest: {
@@ -212,9 +210,8 @@ class SubmissionOnlyClient extends FakeClient {
     throw new Error("rating changes should not be fetched");
   }
 
-  async contestStandings(_contestId = 100, handle = ""): Promise<CfStandings> {
+  async contestStandings(_contestId = 100): Promise<CfStandings> {
     this.standingsCalls += 1;
-    this.standingsHandles.push(handle);
     return {
       contest: {
         id: 100,
@@ -276,9 +273,8 @@ class SharedDivisionClient extends SubmissionOnlyClient {
     ];
   }
 
-  async contestStandings(contestId = 201, handle = ""): Promise<CfStandings> {
+  async contestStandings(contestId = 201): Promise<CfStandings> {
     this.standingsCalls += 1;
-    this.standingsHandles.push(handle);
     const isDiv1 = contestId === 201;
     return {
       contest: {
@@ -323,10 +319,9 @@ class StandingsDiscoveredSharedDivisionClient extends SharedDivisionClient {
 }
 
 class UnsharedPairedDivisionClient extends StandingsDiscoveredSharedDivisionClient {
-  async contestStandings(contestId = 201, handle = ""): Promise<CfStandings> {
-    if (contestId === 201) return super.contestStandings(contestId, handle);
+  async contestStandings(contestId = 201): Promise<CfStandings> {
+    if (contestId === 201) return super.contestStandings(contestId);
     this.standingsCalls += 1;
-    this.standingsHandles.push(handle);
     return {
       contest: {
         id: 202,
@@ -363,9 +358,8 @@ class UpsolveOnlyClient extends FakeClient {
     throw new Error("rating changes should not be fetched");
   }
 
-  async contestStandings(_contestId = 100, handle = ""): Promise<CfStandings> {
+  async contestStandings(_contestId = 100): Promise<CfStandings> {
     this.standingsCalls += 1;
-    this.standingsHandles.push(handle);
     return {
       contest: {
         id: 100,
@@ -505,9 +499,8 @@ class NoopHydrationClient extends FakeClient {
     throw new Error("rating changes should not be fetched");
   }
 
-  async contestStandings(_contestId = 100, handle = ""): Promise<CfStandings> {
+  async contestStandings(_contestId = 100): Promise<CfStandings> {
     this.standingsCalls += 1;
-    this.standingsHandles.push(handle);
     return {
       contest: {
         id: 100,
@@ -525,7 +518,6 @@ class NoopHydrationClient extends FakeClient {
 
 class BackfillClient {
   standingsCalls: number[] = [];
-  standingsHandles: string[] = [];
 
   private readonly contestIds = Array.from({ length: 35 }, (_, index) => index + 1);
 
@@ -594,9 +586,8 @@ class BackfillClient {
     ];
   }
 
-  async contestStandings(contestId: number, handle: string): Promise<CfStandings> {
+  async contestStandings(contestId: number): Promise<CfStandings> {
     this.standingsCalls.push(contestId);
-    this.standingsHandles.push(handle);
     return {
       contest: {
         id: contestId,
@@ -1150,7 +1141,6 @@ test("user sync imports standings-only contest problems before writing contest r
 
     assert.equal(client.ratingChangesCalls, 1);
     assert.equal(client.standingsCalls, 1);
-    assert.deepEqual(client.standingsHandles, [cfHandle]);
     assert.equal(contestRows.count, 1);
     assert.equal(contestPerformance.performance, 1867);
     assert.equal(problemRows.count, 3);
@@ -1286,8 +1276,6 @@ test("user sync enqueues all older unsynced contests on refresh", async () => {
       15, 14, 13, 12, 11, 10, 9, 8, 7, 6,
       5, 4, 3, 2, 1,
     ]);
-    assert.ok(client.standingsHandles.every((handle) => handle === cfHandle));
-
     await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
 
     contestRows = db.prepare("SELECT COUNT(*) AS count FROM user_contest_results").get() as { count: number };

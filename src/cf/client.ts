@@ -63,10 +63,10 @@ export class CodeforcesClient {
     return this.request<CfRatingChange[]>("/contest.ratingChanges", { contestId: String(contestId) });
   }
 
-  async contestStandings(contestId: number, handle: string): Promise<CfStandings> {
+  async contestStandings(contestId: number): Promise<CfStandings> {
+    // Regular contests reject any param besides contestId (including handles/from/count).
     return this.request<CfStandings>("/contest.standings", {
       contestId: String(contestId),
-      handles: handle,
     });
   }
 

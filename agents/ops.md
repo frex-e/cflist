@@ -21,20 +21,15 @@ SQLite runs in WAL mode (`PRAGMA journal_mode = WAL`). To back up safely:
 
 A naive `cp` of only the main `.sqlite` file while the app is writing can produce an inconsistent snapshot.
 
-## One-time standings-cache disk reclamation
+## Standings disk / request note
 
-Migration v9 drops `contest_standings_cache`, so SQLite can reuse those pages immediately, but the database file does not shrink automatically. After deploying v9:
+Do not reintroduce an uncompressed `contest_standings_cache` of full API payloads — that grew to ~1 GB for a single user. Regular contests only allow bare `contest.standings?contestId=…` (no per-handle filter); see [codeforces.md](./codeforces.md) and the storage vs request section in [sync-and-data.md](./sync-and-data.md).
 
-1. Back up the database using the guidance above.
-2. Stop the app so no process is using the database.
-3. Run `sqlite3 data/cflist.sqlite 'VACUUM;'` (substitute the configured `DB_PATH`).
-4. Restart the app.
-
-`VACUUM` is intentionally not run during startup: it can block startup and temporarily needs substantial free disk while rebuilding the file.
+If an old local DB still has leftover free pages after dropping that cache, reclaim with offline `VACUUM` (stop the app first): `sqlite3 data/cflist.sqlite 'VACUUM;'`.
 
 ## Design tradeoffs
 
 - Server-rendered and URL-backed; avoid a client-side app model unless the UI clearly needs it.
 - Contest family/division values are best-effort labels from contest names. Preserve raw contest names; keep `Unknown`/`Other` filter paths visible.
-- `raw_json` fields preserve source API payloads for future UI needs without immediate migrations.
+- `raw_json` fields preserve source API payloads for future UI needs without immediate migrations. Prefer not to store multi‑MB contest standings blobs this way.
 - Use Node's built-in test runner. High-value areas: contest classification, solved-status conversion, SQL/filter behavior, HTMX row fragments.
