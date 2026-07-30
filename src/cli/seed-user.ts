@@ -4,22 +4,19 @@ import { buildAuthTrustedOrigins, config } from "../config.js";
 import { openDb } from "../db/connection.js";
 import { migrate } from "../db/migrate.js";
 
-// Idempotent seed for a shared CFList test user. Credentials come from
-// environment secrets so they never live in the repo; the Codeforces handle is
-// fixed. Re-running is a no-op when the user already matches, and self-heals
-// (recreates) when the password secret changes or the handle drifts.
+// Idempotent seed for a shared CFList test user (a throwaway login for local /
+// cloud-agent dev, not a production credential). Defaults are hardcoded so every
+// environment has the same known login with no setup; TEST_USER_EMAIL /
+// TEST_USER_PASSWORD can still override them. The Codeforces handle is fixed.
+// Re-running is a no-op when the user already matches, and self-heals
+// (recreates) when the password or handle drifts.
 const CF_HANDLE = "inj";
 const NAME = "CFList Test User";
+const DEFAULT_EMAIL = "test@cflist.local";
+const DEFAULT_PASSWORD = "cflist-test-password";
 
-const email = process.env.TEST_USER_EMAIL?.trim();
-const password = process.env.TEST_USER_PASSWORD;
-
-if (!email || !password) {
-  console.log(
-    "[seed-user] TEST_USER_EMAIL / TEST_USER_PASSWORD not set; skipping test-user seed.",
-  );
-  process.exit(0);
-}
+const email = (process.env.TEST_USER_EMAIL?.trim() || DEFAULT_EMAIL);
+const password = (process.env.TEST_USER_PASSWORD || DEFAULT_PASSWORD);
 
 if (password.length < 8) {
   console.error("[seed-user] TEST_USER_PASSWORD must be at least 8 characters (Better Auth minimum).");
@@ -46,7 +43,7 @@ const findUser = (): { id: string; cfHandle: string } | undefined =>
 
 const passwordWorks = async (): Promise<boolean> => {
   try {
-    await auth.api.signInEmail({ body: { email: email!, password: password! } });
+    await auth.api.signInEmail({ body: { email, password } });
     return true;
   } catch {
     return false;
@@ -55,7 +52,7 @@ const passwordWorks = async (): Promise<boolean> => {
 
 const createUser = async (): Promise<void> => {
   await auth.api.signUpEmail({
-    body: { name: NAME, email: email!, password: password!, cfHandle: CF_HANDLE },
+    body: { name: NAME, email, password, cfHandle: CF_HANDLE },
   });
   // Normalize the handle defensively in case the additional field default won.
   db.prepare(`UPDATE "user" SET cfHandle = @cfHandle, updatedAt = @now WHERE email = @email`).run({
