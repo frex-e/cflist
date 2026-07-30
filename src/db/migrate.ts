@@ -131,6 +131,7 @@ const SCHEMA_SQL = `
     user_id TEXT NOT NULL,
     canonical_id TEXT NOT NULL,
     solved_override INTEGER CHECK (solved_override IS NULL OR solved_override IN (0, 1)),
+    skipped INTEGER NOT NULL DEFAULT 0 CHECK (skipped IN (0, 1)),
     note TEXT,
     updated_at TEXT NOT NULL,
     PRIMARY KEY (user_id, canonical_id),
@@ -260,4 +261,5 @@ export const migrate = (db: Db): void => {
   // does not alter existing tables, so upgrade them explicitly.
   ensureColumn(db, "problems", "estimated_rating", "estimated_rating INTEGER");
   ensureColumn(db, "problems", "estimated_rating_at", "estimated_rating_at TEXT");
+  ensureColumn(db, "user_problem_overrides", "skipped", "skipped INTEGER NOT NULL DEFAULT 0");
 };

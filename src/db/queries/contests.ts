@@ -102,6 +102,7 @@ const userProblemsJsonSubquery = `
       'estimated_rating', p.estimated_rating,
       'solved_in_contest', ucpr.solved_in_contest,
       'upsolved', ucpr.upsolved,
+      'skipped', COALESCE(upo.skipped, 0),
       'points', ucpr.points,
       'rejected_attempt_count', ucpr.rejected_attempt_count,
       'best_submission_time_seconds', ucpr.best_submission_time_seconds
@@ -112,6 +113,9 @@ const userProblemsJsonSubquery = `
   JOIN problems p
     ON p.contest_id = ucpr.contest_id
     AND p.problem_index = ucpr.problem_index
+  LEFT JOIN user_problem_overrides upo
+    ON upo.user_id = ucpr.user_id
+    AND upo.canonical_id = p.canonical_id
   WHERE ucpr.user_id = ucr.user_id
     AND ucpr.contest_id = ucr.contest_id
 `;
@@ -127,6 +131,7 @@ const catalogProblemsJsonSubquery = `
       'estimated_rating', p.estimated_rating,
       'solved_in_contest', 0,
       'upsolved', 0,
+      'skipped', COALESCE(upo.skipped, 0),
       'points', NULL,
       'rejected_attempt_count', NULL,
       'best_submission_time_seconds', NULL
@@ -134,6 +139,9 @@ const catalogProblemsJsonSubquery = `
     ORDER BY p.problem_index COLLATE NOCASE ASC
   )
   FROM problems p
+  LEFT JOIN user_problem_overrides upo
+    ON upo.user_id = @userId
+    AND upo.canonical_id = p.canonical_id
   WHERE p.contest_id = c.id
 `;
 

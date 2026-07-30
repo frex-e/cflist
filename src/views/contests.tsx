@@ -138,16 +138,21 @@ const RatingValue = ({ value }: { value: number | null }) => {
   );
 };
 
-const problemPillState = (problem: ContestProblemResultRow): "contest-solved" | "upsolved" | "unsolved" =>
+const problemPillState = (
+  problem: ContestProblemResultRow,
+): "contest-solved" | "upsolved" | "skipped" | "unsolved" =>
   problem.solved_in_contest
     ? "contest-solved"
     : problem.upsolved
       ? "upsolved"
-      : "unsolved";
+      : problem.skipped
+        ? "skipped"
+        : "unsolved";
 
 const problemPillStateLabel = (problem: ContestProblemResultRow): string => {
   if (problem.solved_in_contest) return "solved in contest";
   if (problem.upsolved) return "upsolved after contest";
+  if (problem.skipped) return "skipped";
   return "unsolved";
 };
 
@@ -178,7 +183,7 @@ const LegendProblemPill = ({
   stripeClass,
 }: {
   index: string;
-  state: "contest-solved" | "upsolved" | "unsolved";
+  state: "contest-solved" | "upsolved" | "skipped" | "unsolved";
   stripeClass?: string;
 }) => (
   <i class={`contest-problem-pill ${state}`}>
@@ -332,8 +337,9 @@ const ContestsTableSection = ({ options }: { options: ContestsPageOptions }) => 
         <div class="contest-legend">
           <span><LegendProblemPill index="A" state="contest-solved" /> solved</span>
           <span><LegendProblemPill index="B" state="upsolved" /> upsolved</span>
-          <span><LegendProblemPill index="C" state="unsolved" /> unsolved</span>
-          <span><LegendProblemPill index="D" state="unsolved" stripeClass="rank-expert" /> stripe = problem rating</span>
+          <span><LegendProblemPill index="C" state="skipped" /> skipped</span>
+          <span><LegendProblemPill index="D" state="unsolved" /> unsolved</span>
+          <span><LegendProblemPill index="E" state="unsolved" stripeClass="rank-expert" /> stripe = problem rating</span>
         </div>
       </div>
       <table>

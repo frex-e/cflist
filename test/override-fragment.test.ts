@@ -120,7 +120,7 @@ test("manual solved HTMX response swaps the list instead of a bare table row", a
         cookie,
       },
       body: new URLSearchParams({
-        solvedOverride: "1",
+        localStatus: "solved",
       }).toString(),
     });
 
@@ -130,6 +130,85 @@ test("manual solved HTMX response swaps the list instead of a bare table row", a
     assert.match(html.trim(), /^<section id="problem-list"/);
     assert.match(html, /id="problem-summary"[^>]*hx-swap-oob="true"/);
     assert.doesNotMatch(html, /^<p[\s>]/);
+  });
+});
+
+test("status control cycles unsolved to skipped to solved", async () => {
+  await withSeededApp(async (app, db) => {
+    const cookie = await signUp(app, db);
+
+    const skipResponse = await app.request("/problems/1/A/override", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        "hx-request": "true",
+        "hx-current-url": "http://localhost/problems",
+        cookie,
+      },
+      body: new URLSearchParams({ localStatus: "skipped" }).toString(),
+    });
+    const skipHtml = await skipResponse.text();
+    assert.equal(skipResponse.status, 200);
+    assert.match(skipHtml, /problem-row skipped-row/);
+    assert.match(skipHtml, /status status-button skipped/);
+    assert.match(skipHtml, /1 skipped, 0 unsolved for tourist/);
+
+    const solvedResponse = await app.request("/problems/1/A/override", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        "hx-request": "true",
+        "hx-current-url": "http://localhost/problems",
+        cookie,
+      },
+      body: new URLSearchParams({ localStatus: "solved" }).toString(),
+    });
+    const solvedHtml = await solvedResponse.text();
+    assert.equal(solvedResponse.status, 200);
+    assert.match(solvedHtml, /problem-row solved-row/);
+    assert.match(solvedHtml, /status status-button solved manual-solved/);
+    assert.doesNotMatch(solvedHtml, /skipped-row/);
+
+    const clearResponse = await app.request("/problems/1/A/override", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        "hx-request": "true",
+        "hx-current-url": "http://localhost/problems",
+        cookie,
+      },
+      body: new URLSearchParams({ localStatus: "" }).toString(),
+    });
+    const clearHtml = await clearResponse.text();
+    assert.equal(clearResponse.status, 200);
+    assert.match(clearHtml, /status status-button unsolved/);
+    assert.doesNotMatch(clearHtml, /skipped-row|solved-row/);
+  });
+});
+
+test("skipped filter excludes skipped from unsolved", async () => {
+  await withSeededApp(async (app, db) => {
+    const cookie = await signUp(app, db);
+
+    await app.request("/problems/1/A/override", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        "hx-current-url": "http://localhost/problems",
+        cookie,
+      },
+      body: new URLSearchParams({ localStatus: "skipped" }).toString(),
+    });
+
+    const skippedPage = await app.request("/problems?solved=skipped", {
+      headers: { cookie },
+    });
+    const unsolvedPage = await app.request("/problems?solved=unsolved", {
+      headers: { cookie },
+    });
+
+    assert.match(await skippedPage.text(), /Test Problem/);
+    assert.doesNotMatch(await unsolvedPage.text(), /Test Problem/);
   });
 });
 
@@ -325,7 +404,7 @@ test("manual overrides are scoped to the authenticated user", async () => {
         "hx-current-url": "http://localhost/problems",
         cookie: firstCookie,
       },
-      body: new URLSearchParams({ solvedOverride: "1" }).toString(),
+      body: new URLSearchParams({ localStatus: "solved" }).toString(),
     });
     assert.equal(overrideResponse.status, 200);
 

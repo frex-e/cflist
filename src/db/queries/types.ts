@@ -6,7 +6,7 @@ export type ProblemFilters = {
   tagMode: "all" | "any";
   contestFamily?: string;
   divisions: string[];
-  solved: "all" | "solved" | "unsolved";
+  solved: "all" | "solved" | "unsolved" | "skipped";
   showTags: boolean;
   sort: "rating" | "solvedCount" | "contest" | "name";
   sortDirection: "asc" | "desc";
@@ -33,6 +33,7 @@ export type ProblemRow = {
   derived_label: string | null;
   cf_solved: number | null;
   solved_override: number | null;
+  skipped: number;
   effective_solved: number;
 };
 
@@ -57,6 +58,7 @@ export type ListResult = {
   rows: ProblemRow[];
   total: number;
   solved: number;
+  skipped: number;
   unsolved: number;
 };
 
@@ -69,6 +71,7 @@ export type ContestProblemResultRow = {
   estimated_rating: number | null;
   solved_in_contest: number;
   upsolved: number;
+  skipped: number;
   points: number | null;
   rejected_attempt_count: number | null;
   best_submission_time_seconds: number | null;

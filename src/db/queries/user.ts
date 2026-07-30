@@ -132,12 +132,14 @@ export const latestSuccessfulSyncAgeMs = (db: Db): number | undefined => {
   return Number.isFinite(finishedAt) ? Date.now() - finishedAt : undefined;
 };
 
-export const setSolvedOverride = (
+export type LocalProblemStatus = "solved" | "skipped" | null;
+
+export const setProblemOverride = (
   db: Db,
   userId: string,
   contestId: number,
   problemIndex: string,
-  solvedOverride: 0 | 1 | null,
+  localStatus: LocalProblemStatus,
   note: string | null,
 ): void => {
   const canonicalRow = db
@@ -153,8 +155,10 @@ export const setSolvedOverride = (
   if (!canonicalRow) return;
 
   const { canonicalId } = canonicalRow;
+  const solvedOverride = localStatus === "solved" ? 1 : null;
+  const skipped = localStatus === "skipped" ? 1 : 0;
 
-  if (solvedOverride === null && !note) {
+  if (localStatus === null && !note) {
     db.prepare(
       `
       DELETE FROM user_problem_overrides
@@ -170,17 +174,20 @@ export const setSolvedOverride = (
       user_id,
       canonical_id,
       solved_override,
+      skipped,
       note,
       updated_at
     ) VALUES (
       @userId,
       @canonicalId,
       @solvedOverride,
+      @skipped,
       @note,
       @updatedAt
     )
     ON CONFLICT(user_id, canonical_id) DO UPDATE SET
       solved_override = excluded.solved_override,
+      skipped = excluded.skipped,
       note = excluded.note,
       updated_at = excluded.updated_at
   `,
@@ -188,9 +195,22 @@ export const setSolvedOverride = (
     userId,
     canonicalId,
     solvedOverride,
+    skipped,
     note,
     updatedAt: new Date().toISOString(),
   });
+};
+
+/** @deprecated Prefer setProblemOverride; kept for callers that only toggle solved. */
+export const setSolvedOverride = (
+  db: Db,
+  userId: string,
+  contestId: number,
+  problemIndex: string,
+  solvedOverride: 0 | 1 | null,
+  note: string | null,
+): void => {
+  setProblemOverride(db, userId, contestId, problemIndex, solvedOverride === 1 ? "solved" : null, note);
 };
 
 export const getDefaultFilterQuery = (db: Db, userId: string): string | undefined => {
