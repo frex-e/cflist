@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { randomUUID } from "node:crypto";
 import { hydrateUserContestResult } from "../src/cf/sync/contest-hydration.js";
+import { refreshRoundPairs } from "../src/cf/sync/canonical-problems.js";
 import { estimateMissingProblemRatings } from "../src/cf/sync/estimate-problem-ratings.js";
 import { upsertProblemWithTags } from "../src/db/writes/problems.js";
 import type { CfContest, CfRatingChange, CfStandings } from "../src/cf/types.js";
@@ -124,6 +125,43 @@ class FakeClient {
   }
 }
 
+/** Standings for paired Div2(106)/Div1(107) shared-problem tests. */
+class FakePairedClient {
+  standingsCalls = new Map<number, number>();
+
+  async contestRatingChanges(contestId: number): Promise<CfRatingChange[]> {
+    return ratingChanges(contestId);
+  }
+
+  async contestStandings(contestId: number): Promise<CfStandings> {
+    this.standingsCalls.set(contestId, (this.standingsCalls.get(contestId) ?? 0) + 1);
+    const contest: CfContest = {
+      id: contestId,
+      name: contestId === 106 ? "Codeforces Round (Div. 2)" : "Codeforces Round (Div. 1)",
+      phase: "FINISHED",
+      startTimeSeconds: nowSeconds - 10_000,
+      durationSeconds: 7200,
+    };
+    const problemIndex = contestId === 106 ? "D" : "A";
+    const solves = contestId === 106 ? 5 : 8;
+    return {
+      contest,
+      problems: [{ contestId, index: problemIndex, name: "Shared", tags: [] }],
+      rows: Array.from({ length: 10 }, (_, i) => ({
+        party: { members: [{ handle: `user${i}` }], participantType: "CONTESTANT" as const },
+        rank: i + 1,
+        points: i < solves ? 1 : 0,
+        penalty: 0,
+        problemResults: [
+          i < solves
+            ? { points: 1, bestSubmissionTimeSeconds: 10 }
+            : { points: 0 },
+        ],
+      })),
+    };
+  }
+}
+
 test("hydration estimates ratings after contest when rating changes exist", async () => {
   const db = createTestDb();
   const userId = randomUUID();
@@ -153,7 +191,7 @@ test("hydration estimates ratings after contest when rating changes exist", asyn
   assert.equal(rowA.rating, null);
   assert.equal(rowA.estimated_rating, 2000);
   assert.equal(rowB.rating, null);
-  assert.equal(rowB.estimated_rating, 5000);
+  assert.equal(rowB.estimated_rating, 3500);
   db.close();
 });
 
@@ -281,25 +319,58 @@ test("hydration prefers standings contest metadata over stale DB phase", async (
   db.close();
 });
 
-test("estimates do not copy across canonical aliases in paired contests", async () => {
+test("shared Div1/Div2 problems get one combined-field estimate on both placements", async () => {
   const db = createTestDb();
   const userId = randomUUID();
   const canonicalId = randomUUID();
   seedUser(db, userId, "user0");
-  seedFinishedContest(db, 106, "FINISHED", true);
-  seedFinishedContest(db, 107, "FINISHED", true);
+
+  // Paired Div. 2 (106) + Div. 1 (107) with the same start time.
+  db.prepare(
+    `
+    INSERT INTO contests (
+      id, name, phase, duration_seconds, start_time_seconds,
+      derived_family, derived_division, derived_label, raw_json, updated_at
+    ) VALUES (
+      @id, @name, 'FINISHED', 7200, @start,
+      'Codeforces Round', @division, @name, '{}', '2026-01-01T00:00:00.000Z'
+    )
+  `,
+  ).run({
+    id: 106,
+    name: "Codeforces Round (Div. 2)",
+    start: nowSeconds - 10_000,
+    division: "Div. 2",
+  });
+  db.prepare(
+    `
+    INSERT INTO contests (
+      id, name, phase, duration_seconds, start_time_seconds,
+      derived_family, derived_division, derived_label, raw_json, updated_at
+    ) VALUES (
+      @id, @name, 'FINISHED', 7200, @start,
+      'Codeforces Round', @division, @name, '{}', '2026-01-01T00:00:00.000Z'
+    )
+  `,
+  ).run({
+    id: 107,
+    name: "Codeforces Round (Div. 1)",
+    start: nowSeconds - 10_000,
+    division: "Div. 1",
+  });
+  refreshRoundPairs(db);
 
   upsertProblemWithTags(
     db,
     {
       contestId: 106,
-      problemIndex: "A",
+      problemIndex: "D",
       name: "Shared",
       type: "PROGRAMMING",
       points: null,
       rating: null,
       tags: [],
-      url: "https://codeforces.com/contest/106/problem/A",
+      url: "https://codeforces.com/contest/106/problem/D",
       rawJson: "{}",
       updatedAt: "2026-01-01T00:00:00.000Z",
     },
@@ -309,13 +380,13 @@ test("estimates do not copy across canonical aliases in paired contests", async 
     db,
     {
       contestId: 107,
-      problemIndex: "D",
+      problemIndex: "A",
       name: "Shared",
       type: "PROGRAMMING",
       points: null,
       rating: null,
       tags: [],
-      url: "https://codeforces.com/contest/107/problem/D",
+      url: "https://codeforces.com/contest/107/problem/A",
       rawJson: "{}",
       updatedAt: "2026-01-01T00:00:00.000Z",
     },
@@ -331,19 +402,67 @@ test("estimates do not copy across canonical aliases in paired contests", async 
   `,
   ).run({ userId });
 
-  const client = new FakeClient();
-  client.solvesA = 5;
+  // Div. 2 field alone would yield ~2000 for 5/10 solves; Div. 1 field alone
+  // would yield a different value for 8/10. Combined 13/20 should match both rows.
+  const client = new FakePairedClient();
   await hydrateUserContestResult(db, userId, "user0", 106, client as never);
 
   const div2 = db
-    .prepare("SELECT estimated_rating FROM problems WHERE contest_id = 106 AND problem_index = 'A'")
+    .prepare("SELECT estimated_rating FROM problems WHERE contest_id = 106 AND problem_index = 'D'")
     .get() as { estimated_rating: number | null };
   const div1 = db
-    .prepare("SELECT estimated_rating FROM problems WHERE contest_id = 107 AND problem_index = 'D'")
+    .prepare("SELECT estimated_rating FROM problems WHERE contest_id = 107 AND problem_index = 'A'")
     .get() as { estimated_rating: number | null };
 
-  assert.equal(div2.estimated_rating, 2000);
-  assert.equal(div1.estimated_rating, null);
+  assert.equal(div2.estimated_rating, div1.estimated_rating);
+  assert.notEqual(div2.estimated_rating, null);
+  // Combined 13 solves out of 20 rated (flat 2000); solo Div2 would be 2000, Div1 ~1760.
+  assert.ok(Math.abs((div2.estimated_rating as number) - 1893) <= 2);
+  assert.equal(client.standingsCalls.get(106), 1);
+  assert.equal(client.standingsCalls.get(107), 1);
+  db.close();
+});
+
+test("shared estimate is capped at the max official rating tag", async () => {
+  const db = createTestDb();
+  const userId = randomUUID();
+  seedUser(db, userId, "user0");
+  seedFinishedContest(db, 110, "FINISHED", true);
+  seedUnratedProblem(db, 110, "A");
+  seedUnratedProblem(db, 110, "B");
+  // Official tag ceiling present in catalog.
+  upsertProblemWithTags(
+    db,
+    {
+      contestId: 110,
+      problemIndex: "Z",
+      name: "Hard",
+      type: "PROGRAMMING",
+      points: null,
+      rating: 2400,
+      tags: [],
+      url: "https://codeforces.com/contest/110/problem/Z",
+      rawJson: "{}",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+    "catalog",
+  );
+
+  db.prepare(
+    `
+    INSERT INTO user_contest_results (
+      user_id, contest_id, rank, old_rating, new_rating, rating_delta, last_checked_at
+    ) VALUES (@userId, 110, 1, 2000, 2000, 0, '2026-01-01T00:00:00.000Z')
+  `,
+  ).run({ userId });
+
+  const client = new FakeClient();
+  await hydrateUserContestResult(db, userId, "user0", 110, client as never);
+
+  const rowB = db
+    .prepare("SELECT estimated_rating FROM problems WHERE contest_id = 110 AND problem_index = 'B'")
+    .get() as { estimated_rating: number | null };
+  assert.equal(rowB.estimated_rating, 2400);
   db.close();
 });
 

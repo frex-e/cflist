@@ -41,7 +41,8 @@ When Codeforces has not published an official problem `rating` yet, CFList may s
 - Eligibility: contest ended (`start + duration <= now`), phase is `FINISHED` when set (never `CODING` / system-test phases), and non-empty rating changes exist. Live-contest hydration may import problems but must not estimate. Both hydration and the metadata estimate pass prefer fresh `standings.contest` over a possibly stale DB contest row (metadata only cheap-skips when the DB end time is still in the future).
 - Primary trigger: after contest hydration once rating changes are available.
 - Secondary: metadata refresh one-shot for unrated rows still missing an estimate (fetches standings for in-contest solve counts; does not use catalog `solved_count`, which includes upsolves). Does not recalculate every hour once an estimate exists.
-- Each contest placement is estimated independently (no cross-contest canonical alias copy); Div. 1/Div. 2 share a task but have different rated fields.
+- Estimates are capped at the highest official problem `rating` already in the catalog (fallback 3500), so unsolved/extreme Elo fits never exceed the max rating tag.
+- Shared Div. 1 / Div. 2 placements (same `canonical_id` via round pairs) get one estimate: when both contests’ rating changes + standings are available, use the combined rated field and write that value to both rows. If only one side is available, use that field and provisionally copy to the sibling so the deduped problems list and both contest pill rows agree; later sync upgrades to the combined value.
 - When an official rating arrives via catalog/metadata upsert, `estimated_rating` is cleared.
 - UI/filters use `COALESCE(rating, estimated_rating)`; estimated values display as `~1500`.
 

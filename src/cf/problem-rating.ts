@@ -2,7 +2,8 @@ import { contestEndTime } from "./contest-results.js";
 import type { CfContest, CfRatingChange, CfStandings, CfStandingsRow } from "./types.js";
 
 const MIN_RATING = 0;
-const MAX_RATING = 5000;
+/** Search ceiling / unsolved clamp when no official rating tags exist yet. */
+export const DEFAULT_MAX_PROBLEM_RATING = 3500;
 const DEFAULT_PARTICIPANT_RATING = 1400;
 
 const opponentBeats = (assumedRating: number, opponentRating: number): number => {
@@ -39,16 +40,24 @@ const effectiveOldRating = (rating: number): number => (rating > 0 ? rating : DE
 /**
  * Classic CF/clist problem rating: difficulty D such that the field's expected
  * solve count equals the observed solver count (blog/entry/46304).
+ *
+ * Results are capped at `maxRating` (typically the highest official problem
+ * rating tag already present in the catalog).
  */
-export const estimateProblemRating = (oldRatings: number[], solvedCount: number): number => {
-  if (oldRatings.length === 0) return MAX_RATING;
-  if (solvedCount <= 0) return MAX_RATING;
+export const estimateProblemRating = (
+  oldRatings: number[],
+  solvedCount: number,
+  maxRating: number = DEFAULT_MAX_PROBLEM_RATING,
+): number => {
+  const cap = Math.max(MIN_RATING, Math.floor(maxRating));
+  if (oldRatings.length === 0) return cap;
+  if (solvedCount <= 0) return cap;
   if (solvedCount >= oldRatings.length) return MIN_RATING;
 
   const ratings = oldRatings.map(effectiveOldRating);
 
   // Higher difficulty => fewer expected solves. Find lowest D with expectedSolves(D) <= S.
-  return firstTrue(MIN_RATING, MAX_RATING, (assumed) => expectedSolves(assumed, ratings) <= solvedCount);
+  return firstTrue(MIN_RATING, cap, (assumed) => expectedSolves(assumed, ratings) <= solvedCount);
 };
 
 export const oldRatingsFromChanges = (changes: CfRatingChange[]): number[] =>
@@ -111,11 +120,16 @@ export const estimateContestProblemRatings = (
   oldRatings: number[],
   solvedByIndex: Map<string, number>,
   problemIndexes: string[],
+  maxRating: number = DEFAULT_MAX_PROBLEM_RATING,
 ): Array<{ problemIndex: string; estimatedRating: number }> => {
   if (oldRatings.length === 0) return [];
 
   return problemIndexes.map((problemIndex) => ({
     problemIndex,
-    estimatedRating: estimateProblemRating(oldRatings, solvedByIndex.get(problemIndex) ?? 0),
+    estimatedRating: estimateProblemRating(
+      oldRatings,
+      solvedByIndex.get(problemIndex) ?? 0,
+      maxRating,
+    ),
   }));
 };

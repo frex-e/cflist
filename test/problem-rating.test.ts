@@ -17,9 +17,16 @@ test("estimateProblemRating matches blog intuition for a flat 2000 field", () =>
 
 test("estimateProblemRating clamps all-solved and none-solved", () => {
   const field = [1200, 1400, 1600];
-  assert.equal(estimateProblemRating(field, 0), 5000);
+  assert.equal(estimateProblemRating(field, 0), 3500);
   assert.equal(estimateProblemRating(field, 3), 0);
-  assert.equal(estimateProblemRating([], 1), 5000);
+  assert.equal(estimateProblemRating([], 1), 3500);
+});
+
+test("estimateProblemRating respects an explicit max rating cap", () => {
+  const field = [1200, 1400, 1600];
+  assert.equal(estimateProblemRating(field, 0, 2400), 2400);
+  assert.equal(estimateProblemRating([], 1, 3000), 3000);
+  assert.ok(estimateProblemRating(field, 1, 2000) <= 2000);
 });
 
 test("isContestEligibleForProblemRatingEstimate waits until after contest", () => {
