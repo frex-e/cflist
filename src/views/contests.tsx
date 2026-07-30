@@ -5,7 +5,7 @@ import { layout } from "./layout.js";
 import { LoadMore } from "./load-more.js";
 import { PageHero } from "./page-hero.js";
 import { rangeLabel } from "./pagination.js";
-import { CHART_THRESHOLDS, chartBands, ratingTitle } from "./rating.js";
+import { CHART_THRESHOLDS, chartBands, effectiveProblemRating, formatProblemRating, isEstimatedProblemRating, ratingTitle } from "./rating.js";
 import { render } from "./render.js";
 import { SyncPanel, type SyncPanelOptions } from "./sync-panel.js";
 import {
@@ -152,13 +152,17 @@ const problemPillStateLabel = (problem: ContestProblemResultRow): string => {
 };
 
 const problemPillTitle = (problem: ContestProblemResultRow): string => {
-  const ratingPart = problem.rating === null ? "" : ` (${formatNumber(problem.rating)})`;
+  const ratingLabel = formatProblemRating(problem.rating, problem.estimated_rating);
+  const ratingPart = ratingLabel
+    ? ` (${ratingLabel}${isEstimatedProblemRating(problem.rating, problem.estimated_rating) ? ", estimated" : ""})`
+    : "";
   return `${problem.problem_index} — ${problem.name}${ratingPart}: ${problemPillStateLabel(problem)}`;
 };
 
 const ProblemPill = ({ problem }: { problem: ContestProblemResultRow }) => {
   const state = problemPillState(problem);
-  const tier = ratingTitle(problem.rating);
+  const displayRating = effectiveProblemRating(problem.rating, problem.estimated_rating);
+  const tier = ratingTitle(displayRating);
 
   return (
     <a class={`contest-problem-pill ${state}`} href={problem.url} rel="noreferrer" target="_blank" title={problemPillTitle(problem)}>

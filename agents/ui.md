@@ -18,6 +18,7 @@ Server-rendered Hono TSX views under `src/views/`. `filters.js` loads only on `/
 
 - Problem id/name links go to the contest-scoped Codeforces problem page; no local detail page.
 - Search (`q`) matches problem names, ids such as `1900A`, and raw contest names.
+- Rating column shows official CF rating, or `~N` when only a clist-style estimate exists (`title` explains estimated). Rank dots and min/max filters use `COALESCE(official, estimated)`.
 - De-duplicates shared Div. 1/Div. 2 aliases by `canonical_id` (round pairing + same problem name) after filters; aggregates CF solved state and manual overrides across the alias group. Contest history preserves contest-specific indices.
 - Solved toggles POST and re-render `#problem-list` plus summary via HTMX so rows disappear under filters like `solved=unsolved`. Override is stored per `canonical_id` (all placements share one toggle). Filter context comes from the `HX-Current-URL` header.
 - Filter changes fetch `/problems/fragment`, swap the table, and update the canonical URL.
@@ -28,7 +29,7 @@ Server-rendered Hono TSX views under `src/views/`. `filters.js` loads only on `/
 
 ## Contests page
 
-`/contests` shows contest rows with rank, score, rating delta, estimated performance, and per-problem solve/upsolve pills when synced. Pill pastel fill encodes solve state (green tint = in contest, teal tint = upsolved, gray tint = unsolved); left stripe uses vivid Codeforces problem rating tier colors.
+`/contests` shows contest rows with rank, score, rating delta, estimated performance, and per-problem solve/upsolve pills when synced. Pill pastel fill encodes solve state (green tint = in contest, teal tint = upsolved, gray tint = unsolved); left stripe uses vivid Codeforces problem rating tier colors (official or estimated when official is missing; tooltip marks estimates).
 
 - Table show control is a 4-way segment: `All`, `Participated`, `Rated`, `Upsolved` (lexicographic). URL param `show=upsolved|participated|rated` (`All` omits it). `All` lists past catalog contests that have at least one problemset problem (`problems` row), LEFT JOINing user standings when present; catalog-only rows show unsolved problem pills from the problems index. Upsolved/Participated/Rated stay limited to synced user history. Rating/performance charts always plot every rated contest (`new_rating IS NOT NULL`), independent of table filter and pagination.
 - HTMX infinite-scroll sentinel appends `/contests/fragment?append=1` pages at the bottom (fixed page size 50). `infinite-scroll.js` loads the next page when the user scrolls it into view (one page per scroll position, no auto-cascade).

@@ -33,6 +33,17 @@ Problems list dedup uses `problems.canonical_id`, not rating/tags metadata.
 - `problems.tags_json` is a denormalized display cache from the API on upsert; not used for list dedup.
 - Metadata refresh targets rows with `rating IS NULL` or no `problem_tags` rows (not `tags_json = '[]'`).
 
+## Estimated problem ratings
+
+When Codeforces has not published an official problem `rating` yet, CFList may store a clist-style `estimated_rating` (Elo expected-solves binary search over the rated field from `contest.ratingChanges`, using in-contest solve counts from standings when available).
+
+- `problems.rating` stays official-only; estimates never overwrite it.
+- Eligibility: contest ended (`start + duration <= now`), phase is `FINISHED` when set (never `CODING` / system-test phases), and non-empty rating changes exist. Live-contest hydration may import problems but must not estimate.
+- Primary trigger: after contest hydration once rating changes are available.
+- Secondary: metadata refresh one-shot for unrated rows still missing an estimate (uses cached rating changes + catalog `solved_count`; does not recalculate every hour as upsolve counts grow).
+- When an official rating arrives via catalog/metadata upsert, `estimated_rating` is cleared.
+- UI/filters use `COALESCE(rating, estimated_rating)`; estimated values display as `~1500`.
+
 ## Tables
 
 - Shared catalog: `contests`, `problems`, `problem_tags`, `contest_round_pairs`.

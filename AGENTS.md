@@ -37,6 +37,7 @@ Detailed notes live in [`agents/`](./agents/README.md) by topic (Codeforces API,
 - Import contest-scoped problems from standings when `problemset.problems` omits them.
 - If a submission-discovered contest lacks a matching standings row, keep rank/score blank but use accepted submissions for contest problem pills.
 - Key app-owned user data by auth user id, not Codeforces handle.
+- Official problem `rating` wins when present; otherwise show clist-style `estimated_rating` (only after contest end + rating changes). Never estimate during a live contest.
 - Run `npm test` after behavior changes.
 
 ## Cursor Cloud specific instructions

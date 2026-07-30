@@ -37,6 +37,8 @@ const upsertCatalogProblem = (db: Db) =>
       type,
       points,
       rating,
+      estimated_rating,
+      estimated_rating_at,
       solved_count,
       tags_json,
       url,
@@ -51,6 +53,8 @@ const upsertCatalogProblem = (db: Db) =>
       @type,
       @points,
       @rating,
+      NULL,
+      NULL,
       @solvedCount,
       @tagsJson,
       @url,
@@ -64,6 +68,14 @@ const upsertCatalogProblem = (db: Db) =>
       type = excluded.type,
       points = excluded.points,
       rating = excluded.rating,
+      estimated_rating = CASE
+        WHEN excluded.rating IS NOT NULL THEN NULL
+        ELSE problems.estimated_rating
+      END,
+      estimated_rating_at = CASE
+        WHEN excluded.rating IS NOT NULL THEN NULL
+        ELSE problems.estimated_rating_at
+      END,
       solved_count = excluded.solved_count,
       tags_json = excluded.tags_json,
       url = excluded.url,
@@ -81,6 +93,8 @@ const upsertStandingsProblem = (db: Db) =>
       type,
       points,
       rating,
+      estimated_rating,
+      estimated_rating_at,
       solved_count,
       tags_json,
       url,
@@ -96,6 +110,8 @@ const upsertStandingsProblem = (db: Db) =>
       @points,
       @rating,
       NULL,
+      NULL,
+      NULL,
       @tagsJson,
       @url,
       @rawJson,
@@ -106,7 +122,15 @@ const upsertStandingsProblem = (db: Db) =>
       name = excluded.name,
       type = excluded.type,
       points = excluded.points,
-      rating = excluded.rating,
+      rating = COALESCE(excluded.rating, problems.rating),
+      estimated_rating = CASE
+        WHEN COALESCE(excluded.rating, problems.rating) IS NOT NULL THEN NULL
+        ELSE problems.estimated_rating
+      END,
+      estimated_rating_at = CASE
+        WHEN COALESCE(excluded.rating, problems.rating) IS NOT NULL THEN NULL
+        ELSE problems.estimated_rating_at
+      END,
       tags_json = excluded.tags_json,
       url = excluded.url,
       raw_json = excluded.raw_json,
@@ -154,5 +178,46 @@ export const upsertProblemWithTags = (
   deleteProblemTags(db).run({ contestId: input.contestId, problemIndex: input.problemIndex });
   for (const tag of tags) {
     insertProblemTag(db).run({ contestId: input.contestId, problemIndex: input.problemIndex, tag });
+  }
+};
+
+export const writeEstimatedRatings = (
+  db: Db,
+  estimates: Array<{
+    contestId: number;
+    problemIndex: string;
+    estimatedRating: number;
+    estimatedAt: string;
+  }>,
+): void => {
+  if (estimates.length === 0) return;
+
+  const update = db.prepare(`
+    UPDATE problems
+    SET
+      estimated_rating = @estimatedRating,
+      estimated_rating_at = @estimatedAt
+    WHERE contest_id = @contestId
+      AND problem_index = @problemIndex
+      AND rating IS NULL
+  `);
+
+  const copyToCanonicalAliases = db.prepare(`
+    UPDATE problems
+    SET
+      estimated_rating = @estimatedRating,
+      estimated_rating_at = @estimatedAt
+    WHERE canonical_id = (
+      SELECT canonical_id
+      FROM problems
+      WHERE contest_id = @contestId AND problem_index = @problemIndex
+    )
+      AND rating IS NULL
+      AND NOT (contest_id = @contestId AND problem_index = @problemIndex)
+  `);
+
+  for (const estimate of estimates) {
+    update.run(estimate);
+    copyToCanonicalAliases.run(estimate);
   }
 };

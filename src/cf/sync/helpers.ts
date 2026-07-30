@@ -26,7 +26,17 @@ export const contestSortValue = (
 
 export const loadContestsById = (db: Db): Map<number, CfContest> => {
   const contestRows = db
-    .prepare("SELECT id, name, start_time_seconds AS startTimeSeconds, duration_seconds AS durationSeconds FROM contests")
+    .prepare(
+      `
+      SELECT
+        id,
+        name,
+        phase,
+        start_time_seconds AS startTimeSeconds,
+        duration_seconds AS durationSeconds
+      FROM contests
+    `,
+    )
     .all() as unknown as CfContest[];
   return new Map(contestRows.map((contest) => [contest.id, contest]));
 };

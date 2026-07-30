@@ -94,11 +94,11 @@ export const buildWhere = (
     params.q = `%${filters.q}%`;
   }
   if (filters.minRating !== undefined) {
-    clauses.push("p.rating >= @minRating");
+    clauses.push("COALESCE(p.rating, p.estimated_rating) >= @minRating");
     params.minRating = filters.minRating;
   }
   if (filters.maxRating !== undefined) {
-    clauses.push("p.rating <= @maxRating");
+    clauses.push("COALESCE(p.rating, p.estimated_rating) <= @maxRating");
     params.maxRating = filters.maxRating;
   }
   if (filters.contestFamily) {
@@ -166,7 +166,10 @@ export const orderBy = (
   const dir = direction === "asc" ? "ASC" : "DESC";
   const column = (name: string): string => (alias ? `${alias}.${name}` : name);
   if (sort === "rating") {
-    return `${column("rating")} IS NULL, ${column("rating")} ${dir}, ${column("contest_id")} DESC, ${column("problem_index")} ASC`;
+    const effective = alias
+      ? `COALESCE(${column("rating")}, ${column("estimated_rating")})`
+      : "COALESCE(rating, estimated_rating)";
+    return `${effective} IS NULL, ${effective} ${dir}, ${column("contest_id")} DESC, ${column("problem_index")} ASC`;
   }
   if (sort === "solvedCount") {
     return `${column("solved_count")} IS NULL, ${column("solved_count")} ${dir}, ${column("contest_id")} DESC, ${column("problem_index")} ASC`;
@@ -206,6 +209,7 @@ export const dedupedProblemsCte = (filters: ProblemFilters, where: string): stri
       p.canonical_id,
       p.name,
       p.rating,
+      p.estimated_rating,
       p.solved_count,
       p.tags_json,
       p.url,

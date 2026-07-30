@@ -3,7 +3,12 @@ import type { ProblemRow } from "../db/queries.js";
 import { formatNumber } from "./html.js";
 import { layout } from "./layout.js";
 import { PageHero } from "./page-hero.js";
-import { ratingTitle } from "./rating.js";
+import {
+  effectiveProblemRating,
+  formatProblemRating,
+  isEstimatedProblemRating,
+  ratingTitle,
+} from "./rating.js";
 import { render } from "./render.js";
 import { SyncPanel } from "./sync-panel.js";
 import { LoadMore } from "./load-more.js";
@@ -84,7 +89,10 @@ const ProblemRow = (props: { row: ProblemRow; showTags: boolean }) => {
   const { row, showTags } = props;
   const tags = tagsForRow(row);
   const problemId = `${row.contest_id}${row.problem_index}`;
-  const title = ratingTitle(row.rating);
+  const displayRating = effectiveProblemRating(row.rating, row.estimated_rating);
+  const estimated = isEstimatedProblemRating(row.rating, row.estimated_rating);
+  const title = ratingTitle(displayRating);
+  const ratingLabel = formatProblemRating(row.rating, row.estimated_rating);
   const problemHref = `https://codeforces.com/contest/${row.contest_id}/problem/${encodeURIComponent(row.problem_index)}`;
 
   return (
@@ -104,13 +112,21 @@ const ProblemRow = (props: { row: ProblemRow; showTags: boolean }) => {
       </td>
       <td>
         <div class="problem-title-cell">
-          <span class={`rank-dot ${title.className}`} title={title.name}></span>
+          <span
+            class={`rank-dot ${title.className}`}
+            title={estimated ? `${title.name} (estimated)` : title.name}
+          ></span>
           <a class="problem-name" href={problemHref} rel="noreferrer" target="_blank">
             {row.name}
           </a>
         </div>
       </td>
-      <td class="num">{row.rating ?? ""}</td>
+      <td
+        class="num"
+        title={estimated ? "Estimated rating (official pending)" : undefined}
+      >
+        {ratingLabel}
+      </td>
       <td>
         {showTags ? (
           <div class="tags">
