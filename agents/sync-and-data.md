@@ -86,4 +86,4 @@ Does that mean too many Codeforces requests?
 
 ## Schema bootstrap
 
-`src/db/migrate.ts` creates the current schema directly. There is no deployed database or migration history yet; delete local databases when the schema changes.
+`src/db/migrate.ts` creates the current schema with `CREATE TABLE IF NOT EXISTS`, then applies small additive upgrades (e.g. `ALTER TABLE … ADD COLUMN`) for columns introduced after a database already existed. Fresh installs get the full schema from bootstrap; deployed DBs pick up new nullable columns on startup without deleting data. For local throwaway DBs, deleting `data/cflist.sqlite` and restarting is still fine.

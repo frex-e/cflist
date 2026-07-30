@@ -52,7 +52,101 @@ test("migrate bootstraps the current schema without migration history", () => {
       .map((row) => (row as { name: string }).name);
 
     assert.ok(problemColumns.includes("canonical_id"));
+    assert.ok(problemColumns.includes("estimated_rating"));
+    assert.ok(problemColumns.includes("estimated_rating_at"));
     assert.ok(contestResultColumns.includes("standings_checked_at"));
+  } finally {
+    db.close();
+  }
+});
+
+test("migrate adds estimated_rating columns to a pre-PR#10 problems table", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+
+  try {
+    db.exec(`
+      CREATE TABLE contests (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        type TEXT,
+        phase TEXT,
+        duration_seconds INTEGER,
+        start_time_seconds INTEGER,
+        year INTEGER,
+        derived_family TEXT,
+        derived_division TEXT,
+        derived_label TEXT,
+        raw_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE problems (
+        contest_id INTEGER NOT NULL,
+        problemset_name TEXT,
+        problem_index TEXT NOT NULL,
+        name TEXT NOT NULL,
+        type TEXT,
+        points REAL,
+        rating INTEGER,
+        solved_count INTEGER,
+        tags_json TEXT NOT NULL,
+        url TEXT NOT NULL,
+        raw_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        canonical_id TEXT NOT NULL,
+        PRIMARY KEY (contest_id, problem_index),
+        FOREIGN KEY (contest_id) REFERENCES contests(id) ON DELETE CASCADE
+      );
+      INSERT INTO contests (
+        id, name, raw_json, updated_at
+      ) VALUES (
+        1, 'Contest 1', '{}', '2026-01-01T00:00:00.000Z'
+      );
+      INSERT INTO problems (
+        contest_id, problem_index, name, rating, tags_json, url, raw_json,
+        updated_at, canonical_id
+      ) VALUES (
+        1, 'A', 'Problem A', 800, '[]', 'https://example.com', '{}',
+        '2026-01-01T00:00:00.000Z', 'canonical-a'
+      );
+    `);
+
+    migrate(db);
+
+    const problemColumns = db
+      .prepare("PRAGMA table_info(problems)")
+      .all()
+      .map((row) => (row as { name: string }).name);
+    assert.ok(problemColumns.includes("estimated_rating"));
+    assert.ok(problemColumns.includes("estimated_rating_at"));
+
+    const row = db
+      .prepare(
+        `
+        SELECT name, rating, estimated_rating, estimated_rating_at
+        FROM problems
+        WHERE contest_id = 1 AND problem_index = 'A'
+      `,
+      )
+      .get() as {
+      name: string;
+      rating: number | null;
+      estimated_rating: number | null;
+      estimated_rating_at: string | null;
+    };
+    assert.equal(row.name, "Problem A");
+    assert.equal(row.rating, 800);
+    assert.equal(row.estimated_rating, null);
+    assert.equal(row.estimated_rating_at, null);
+
+    // Idempotent on a second migrate.
+    migrate(db);
+    const again = db
+      .prepare("PRAGMA table_info(problems)")
+      .all()
+      .map((row) => (row as { name: string }).name)
+      .filter((name) => name === "estimated_rating" || name === "estimated_rating_at");
+    assert.deepEqual(again, ["estimated_rating", "estimated_rating_at"]);
   } finally {
     db.close();
   }
