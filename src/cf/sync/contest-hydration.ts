@@ -266,7 +266,7 @@ export const hydrateUserContestResult = async (
   const performance = existingRatingChange && existingRatingChange.rank !== 1
     ? await getOrCalculatePerformance(db, client, userId, contestId, cfHandle)
     : null;
-  const standings = await client.contestStandings(contestId, cfHandle);
+  const standings = await client.contestStandings(contestId);
   const knownProblemRows = db
     .prepare(
       `
