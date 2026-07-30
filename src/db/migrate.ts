@@ -243,6 +243,21 @@ const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_sync_runs_started_at ON sync_runs(started_at);
 `;
 
+const tableColumns = (db: Db, table: string): Set<string> => {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  return new Set(rows.map((row) => row.name));
+};
+
+/** Additive upgrades for databases created before a column existed in SCHEMA_SQL. */
+const ensureColumn = (db: Db, table: string, column: string, ddl: string): void => {
+  if (tableColumns(db, table).has(column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+};
+
 export const migrate = (db: Db): void => {
   db.exec(SCHEMA_SQL);
+  // Columns added to SCHEMA_SQL after first deploy; CREATE TABLE IF NOT EXISTS
+  // does not alter existing tables, so upgrade them explicitly.
+  ensureColumn(db, "problems", "estimated_rating", "estimated_rating INTEGER");
+  ensureColumn(db, "problems", "estimated_rating_at", "estimated_rating_at TEXT");
 };
