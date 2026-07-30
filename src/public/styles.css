@@ -1309,13 +1309,13 @@ td.tags {
 }
 
 .contest-problem-pill.skipped {
-  border-color: #d4b96a;
-  background: #f5edd4;
-  color: #6b5210;
+  border-color: #c9a227;
+  background: #ffe566;
+  color: #5c4508;
 }
 
 .contest-problem-pill.skipped:hover {
-  background: #efe4c4;
+  background: #f5d84a;
 }
 
 .contest-problem-pill.unsolved {
