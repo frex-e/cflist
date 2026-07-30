@@ -2,7 +2,7 @@
 
 Server-rendered Hono TSX views under `src/views/`. `filters.js` loads only on `/problems` (rating slider, direction label, Set default save). Problems and Contests show a `<noscript>` banner; interactive UI requires JavaScript.
 
-When adding or changing a visible UI element, demonstrate it in the running app (screen recording preferred; screenshots for static changes) using the shared test account and synced Codeforces data. See [ops.md](./ops.md#feature--ui-demonstrations).
+When adding or changing a visible UI element, demonstrate it in the running app with a screen recording or a screenshot, using the shared test account and synced Codeforces data. See [ops.md](./ops.md#feature--ui-demonstrations).
 
 ## Filters and URLs
 
