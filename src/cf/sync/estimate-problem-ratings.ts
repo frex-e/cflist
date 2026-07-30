@@ -1,5 +1,6 @@
 import { transaction, type Db } from "../../db/connection.js";
 import { writeEstimatedRatings } from "../../db/writes/problems.js";
+import { contestEndTime } from "../contest-results.js";
 import {
   countContestSolves,
   estimateContestProblemRatings,
@@ -136,6 +137,10 @@ export const maybeEstimateProblemRatingsAfterHydration = async (
  * One-shot pass for unrated problems that still lack an estimate. Uses cached
  * (or fetched) rating changes plus a fresh standings fetch for in-contest solve
  * counts — never catalog solved_count, which includes upsolves worldwide.
+ *
+ * Do not hard-gate on the local contests row: phase/duration can lag until the
+ * next catalog sync. Only skip early when the DB end time is clearly still in
+ * the future; final eligibility uses standings.contest.
  */
 export const estimateMissingProblemRatings = async (
   db: Db,
@@ -151,10 +156,13 @@ export const estimateMissingProblemRatings = async (
     byContest.set(row.contestId, list);
   }
 
+  const nowSeconds = Math.floor(Date.now() / 1000);
   let updated = 0;
   for (const [contestId, problems] of byContest) {
     const contest = loadContestRow(db, contestId);
-    if (!isContestEligibleForProblemRatingEstimate(contest)) continue;
+    const dbEndTime = contest ? contestEndTime(contest) : undefined;
+    // Cheap skip only when we know the round is still running.
+    if (dbEndTime !== undefined && dbEndTime > nowSeconds) continue;
 
     let changes = getCachedRatingChanges(db, contestId);
     if (!changes || changes.length === 0) {
@@ -173,8 +181,10 @@ export const estimateMissingProblemRatings = async (
       continue;
     }
 
-    // Prefer fresh standings contest metadata when present.
-    if (!isContestEligibleForProblemRatingEstimate(standings.contest ?? contest)) continue;
+    // Prefer fresh standings contest metadata over a possibly stale DB row.
+    if (!isContestEligibleForProblemRatingEstimate(standings.contest ?? contest, nowSeconds)) {
+      continue;
+    }
 
     updated += estimateFromStandings(
       db,

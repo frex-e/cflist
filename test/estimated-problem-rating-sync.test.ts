@@ -203,6 +203,55 @@ test("metadata estimate pass fills missing estimates from cached rating changes"
   db.close();
 });
 
+test("metadata estimate pass uses standings when DB contest phase is stale", async () => {
+  const db = createTestDb();
+  // Local row still says CODING / incomplete duration; standings report FINISHED.
+  seedFinishedContest(db, 108, "CODING", true);
+  db.prepare("UPDATE contests SET duration_seconds = NULL WHERE id = 108").run();
+  seedUnratedProblem(db, 108, "A");
+
+  db.prepare(
+    `
+    INSERT INTO contest_rating_changes_cache (contest_id, raw_json, fetched_at)
+    VALUES (108, @rawJson, '2026-01-01T00:00:00.000Z')
+  `,
+  ).run({ rawJson: JSON.stringify(ratingChanges(108)) });
+
+  const client = new FakeClient();
+  client.contestPhase = "FINISHED";
+  client.contestEnded = true;
+  const updated = await estimateMissingProblemRatings(db, client as never);
+  assert.equal(updated, 1);
+  assert.equal(client.standingsCalls, 1);
+
+  const row = db
+    .prepare("SELECT estimated_rating FROM problems WHERE contest_id = 108 AND problem_index = 'A'")
+    .get() as { estimated_rating: number | null };
+  assert.equal(row.estimated_rating, 2000);
+  db.close();
+});
+
+test("metadata estimate pass skips contests whose DB end time is still in the future", async () => {
+  const db = createTestDb();
+  seedFinishedContest(db, 109, "CODING", false);
+  seedUnratedProblem(db, 109, "A");
+
+  db.prepare(
+    `
+    INSERT INTO contest_rating_changes_cache (contest_id, raw_json, fetched_at)
+    VALUES (109, @rawJson, '2026-01-01T00:00:00.000Z')
+  `,
+  ).run({ rawJson: JSON.stringify(ratingChanges(109)) });
+
+  const client = new FakeClient();
+  client.contestPhase = "FINISHED";
+  client.contestEnded = true;
+  const updated = await estimateMissingProblemRatings(db, client as never);
+  assert.equal(updated, 0);
+  assert.equal(client.standingsCalls, 0);
+  db.close();
+});
+
 test("hydration prefers standings contest metadata over stale DB phase", async () => {
   const db = createTestDb();
   const userId = randomUUID();
