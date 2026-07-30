@@ -149,3 +149,56 @@ test("linkCanonicalIdsByRoundPairs merges same-named problems across paired roun
     db.close();
   }
 });
+
+test("linkCanonicalIdsByRoundPairs merges skipped overrides across paired rounds", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+
+  try {
+    insertContest(db, 1205, "Div. 1", 1_700_000_000);
+    insertContest(db, 1206, "Div. 2", 1_700_000_000);
+    insertProblem(db, 1205, "A", "Shared Task", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    insertProblem(db, 1206, "C", "Shared Task", "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+
+    db.prepare(
+      `
+      INSERT INTO "user" (
+        id, name, email, emailVerified, createdAt, updatedAt, cfHandle
+      ) VALUES (
+        'user-1', 'Test', 'test@example.com', 1,
+        '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'tourist'
+      )
+    `,
+    ).run();
+
+    db.prepare(
+      `
+      INSERT INTO user_problem_overrides (
+        user_id, canonical_id, solved_override, skipped, note, updated_at
+      ) VALUES (
+        'user-1', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', NULL, 1, NULL, '2026-01-01T00:00:00.000Z'
+      )
+    `,
+    ).run();
+
+    refreshRoundPairs(db);
+    linkCanonicalIdsByRoundPairs(db);
+
+    const override = db
+      .prepare(
+        `
+        SELECT canonical_id AS canonicalId, skipped, solved_override AS solvedOverride
+        FROM user_problem_overrides
+        WHERE user_id = 'user-1'
+      `,
+      )
+      .get() as { canonicalId: string; skipped: number; solvedOverride: number | null };
+
+    assert.equal(override.canonicalId, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    assert.equal(override.skipped, 1);
+    assert.equal(override.solvedOverride, null);
+  } finally {
+    db.close();
+  }
+});

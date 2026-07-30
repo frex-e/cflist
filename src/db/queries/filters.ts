@@ -43,7 +43,7 @@ export const normalizeFilters = (input: URLSearchParams, userId: string, cfHandl
     tagMode,
     contestFamily: input.get("contestFamily") || undefined,
     divisions,
-    solved: solved === "solved" || solved === "unsolved" ? solved : "all",
+    solved: solved === "solved" || solved === "unsolved" || solved === "skipped" ? solved : "all",
     showTags,
     sort: normalizedSort,
     sortDirection:
@@ -116,9 +116,13 @@ export const buildWhere = (
     clauses.push(
       "(COALESCE(cs.cf_solved, 0) = 1 OR COALESCE(upo.solved_override, 0) = 1)",
     );
+  } else if (includeSolvedFilter && filters.solved === "skipped") {
+    clauses.push(
+      "(COALESCE(cs.cf_solved, 0) = 0 AND COALESCE(upo.solved_override, 0) = 0 AND COALESCE(upo.skipped, 0) = 1)",
+    );
   } else if (includeSolvedFilter && filters.solved === "unsolved") {
     clauses.push(
-      "(COALESCE(cs.cf_solved, 0) = 0 AND COALESCE(upo.solved_override, 0) = 0)",
+      "(COALESCE(cs.cf_solved, 0) = 0 AND COALESCE(upo.solved_override, 0) = 0 AND COALESCE(upo.skipped, 0) = 0)",
     );
   }
 
@@ -182,7 +186,8 @@ export const orderBy = (
 
 export const solvedFilterWhere = (filters: ProblemFilters): string => {
   if (filters.solved === "solved") return "WHERE p.effective_solved = 1";
-  if (filters.solved === "unsolved") return "WHERE p.effective_solved = 0";
+  if (filters.solved === "skipped") return "WHERE p.effective_solved = 0 AND p.skipped = 1";
+  if (filters.solved === "unsolved") return "WHERE p.effective_solved = 0 AND p.skipped = 0";
   return "";
 };
 
@@ -219,6 +224,7 @@ export const dedupedProblemsCte = (filters: ProblemFilters, where: string): stri
       c.derived_label,
       COALESCE(cs.cf_solved, 0) AS cf_solved,
       CASE WHEN COALESCE(upo.solved_override, 0) = 1 THEN 1 ELSE 0 END AS solved_override,
+      CASE WHEN COALESCE(upo.skipped, 0) = 1 THEN 1 ELSE 0 END AS skipped,
       CASE
         WHEN COALESCE(cs.cf_solved, 0) = 1 OR COALESCE(upo.solved_override, 0) = 1 THEN 1
         ELSE 0

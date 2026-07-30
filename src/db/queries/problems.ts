@@ -12,8 +12,28 @@ import type { ListResult, ProblemDetail, ProblemFilters, ProblemRow } from "./ty
 type ListRow = ProblemRow & {
   _total: number;
   _solved: number;
+  _skipped: number;
   _unsolved: number;
 };
+
+const mapProblemRow = (row: ProblemRow): ProblemRow => ({
+  contest_id: row.contest_id,
+  problem_index: row.problem_index,
+  name: row.name,
+  rating: row.rating,
+  estimated_rating: row.estimated_rating,
+  solved_count: row.solved_count,
+  tags_json: row.tags_json,
+  url: row.url,
+  contest_name: row.contest_name,
+  derived_family: row.derived_family,
+  derived_division: row.derived_division,
+  derived_label: row.derived_label,
+  cf_solved: row.cf_solved,
+  solved_override: row.solved_override,
+  skipped: row.skipped,
+  effective_solved: row.effective_solved,
+});
 
 export const listProblems = (db: Db, filters: ProblemFilters): ListResult => {
   const { where, params } = buildWhere(filters, { includeSolvedFilter: false });
@@ -35,7 +55,8 @@ export const listProblems = (db: Db, filters: ProblemFilters): ListResult => {
           *,
           COUNT(*) OVER () AS _total,
           SUM(CASE WHEN effective_solved = 1 THEN 1 ELSE 0 END) OVER () AS _solved,
-          SUM(CASE WHEN effective_solved = 0 THEN 1 ELSE 0 END) OVER () AS _unsolved
+          SUM(CASE WHEN effective_solved = 0 AND skipped = 1 THEN 1 ELSE 0 END) OVER () AS _skipped,
+          SUM(CASE WHEN effective_solved = 0 AND skipped = 0 THEN 1 ELSE 0 END) OVER () AS _unsolved
         FROM filtered_deduped
       )
       SELECT
@@ -53,9 +74,11 @@ export const listProblems = (db: Db, filters: ProblemFilters): ListResult => {
         derived_label,
         cf_solved,
         solved_override,
+        skipped,
         effective_solved,
         _total,
         _solved,
+        _skipped,
         _unsolved
       FROM with_totals
       ORDER BY ${orderBy(filters.sort, filters.sortDirection, "")}
@@ -72,42 +95,34 @@ export const listProblems = (db: Db, filters: ProblemFilters): ListResult => {
         SELECT
           COUNT(*) AS total,
           SUM(CASE WHEN p.effective_solved = 1 THEN 1 ELSE 0 END) AS solved,
-          SUM(CASE WHEN p.effective_solved = 0 THEN 1 ELSE 0 END) AS unsolved
+          SUM(CASE WHEN p.effective_solved = 0 AND p.skipped = 1 THEN 1 ELSE 0 END) AS skipped,
+          SUM(CASE WHEN p.effective_solved = 0 AND p.skipped = 0 THEN 1 ELSE 0 END) AS unsolved
         FROM deduped p
         ${dedupedWhere}
       `,
       )
-      .get(params) as { total: number; solved: number | null; unsolved: number | null };
+      .get(params) as {
+      total: number;
+      solved: number | null;
+      skipped: number | null;
+      unsolved: number | null;
+    };
 
     return {
       rows: [],
       total: summary?.total ?? 0,
       solved: summary?.solved ?? 0,
+      skipped: summary?.skipped ?? 0,
       unsolved: summary?.unsolved ?? 0,
     };
   }
 
   const first = rows[0];
   return {
-    rows: rows.map((row) => ({
-      contest_id: row.contest_id,
-      problem_index: row.problem_index,
-      name: row.name,
-      rating: row.rating,
-      estimated_rating: row.estimated_rating,
-      solved_count: row.solved_count,
-      tags_json: row.tags_json,
-      url: row.url,
-      contest_name: row.contest_name,
-      derived_family: row.derived_family,
-      derived_division: row.derived_division,
-      derived_label: row.derived_label,
-      cf_solved: row.cf_solved,
-      solved_override: row.solved_override,
-      effective_solved: row.effective_solved,
-    })),
+    rows: rows.map(mapProblemRow),
     total: first._total,
     solved: first._solved,
+    skipped: first._skipped,
     unsolved: first._unsolved,
   };
 };
@@ -141,6 +156,7 @@ export const getProblem = (
         ups.first_accepted_at_seconds,
         ups.accepted_count,
         upo.solved_override,
+        COALESCE(upo.skipped, 0) AS skipped,
         upo.note AS override_note,
         upo.updated_at AS override_updated_at,
         ${solvedExpr} AS effective_solved

@@ -55,6 +55,12 @@ test("migrate bootstraps the current schema without migration history", () => {
     assert.ok(problemColumns.includes("estimated_rating"));
     assert.ok(problemColumns.includes("estimated_rating_at"));
     assert.ok(contestResultColumns.includes("standings_checked_at"));
+
+    const overrideColumns = db
+      .prepare("PRAGMA table_info(user_problem_overrides)")
+      .all()
+      .map((row) => (row as { name: string }).name);
+    assert.ok(overrideColumns.includes("skipped"));
   } finally {
     db.close();
   }

@@ -7,7 +7,8 @@ import {
   listProblems,
   normalizeFilters,
   setDefaultFilterQuery,
-  setSolvedOverride,
+  setProblemOverride,
+  type LocalProblemStatus,
 } from "../db/queries.js";
 import { currentPageFromRequest } from "../http/current-page.js";
 import { firstString, formToSearchParams, parseContestId } from "../http/forms.js";
@@ -103,14 +104,22 @@ export const registerProblemsRoutes = (
     const index = c.req.param("index");
     if (contestId === undefined) return c.text("Invalid contest id", 400);
 
+    const rawLocalStatus = firstString(form.localStatus);
     const rawOverride = firstString(form.solvedOverride);
-    const solvedOverride = rawOverride === "1" ? 1 : null;
+    let localStatus: LocalProblemStatus = null;
+    if (rawLocalStatus === "skipped" || rawLocalStatus === "solved") {
+      localStatus = rawLocalStatus;
+    } else if (rawLocalStatus === "") {
+      localStatus = null;
+    } else if (rawOverride === "1") {
+      localStatus = "solved";
+    }
     const note = firstString(form.note).trim() || null;
     const problem = getProblem(db, user.id, contestId, index);
 
     if (!problem) return c.text("Problem not found", 404);
 
-    setSolvedOverride(db, user.id, contestId, index, solvedOverride, note);
+    setProblemOverride(db, user.id, contestId, index, localStatus, note);
 
     const listUrl = new URL(currentPageFromRequest(c), c.req.url).toString();
     const options = problemListOptionsFor(user, listUrl);
