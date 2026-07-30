@@ -38,6 +38,7 @@ Detailed notes live in [`agents/`](./agents/README.md) by topic (Codeforces API,
 - If a submission-discovered contest lacks a matching standings row, keep rank/score blank but use accepted submissions for contest problem pills.
 - Key app-owned user data by auth user id, not Codeforces handle.
 - Official problem `rating` wins when present; otherwise show clist-style `estimated_rating` (only after contest end + rating changes). Never estimate during a live contest.
+- When demonstrating a new feature or UI, prefer signing in as the shared test account and syncing real Codeforces data over injecting fake rows into the DB.
 - Run `npm test` after behavior changes.
 
 ## Cursor Cloud specific instructions
@@ -47,3 +48,4 @@ Detailed notes live in [`agents/`](./agents/README.md) by topic (Codeforces API,
 - Dev server: `npm run dev` (tsx watch), serves `http://127.0.0.1:3000`. Home and `/problems` redirect to `/sign-in` until authenticated; sign-up (`/sign-up`) needs name, email, password, and a real Codeforces handle (e.g. `tourist`). Health check: `GET /healthz` → `{"ok":true}`.
 - No dedicated lint script; type-checking is `npm run build` (`tsc`). `npm test` builds first, then runs `node --test`; the `Codeforces sync failed: database is not open` lines during tests are expected teardown noise, not failures.
 - Shared test user: `npm run seed:test-user` idempotently seeds a throwaway login (Codeforces handle `inj`) through Better Auth into `DB_PATH`. Credentials default to `test@cflist.local` / `cflist-test-password` (override with `TEST_USER_EMAIL`/`TEST_USER_PASSWORD`, password ≥8 chars). It's a no-op when the user already matches and recreates the user if the password/handle drifted. The startup update script runs it (`--if-present`), so every new VM can sign in at `/sign-in` with those defaults. Sign-in needs no network; the first `/problems` visit still triggers a background Codeforces sync for `inj`. The `WARN [Better Auth]: Invalid password` line only appears during the self-heal path (probing the old password) and is expected.
+- Feature/UI demos: sign in as that test user and let sync pull real Codeforces data. Do not hand-insert fake problems, contests, standings, or solves into SQLite just to screenshot or walk through the UI—fake rows drift from real shapes and miss sync/edge-case behavior. Reserve synthetic DB fixtures for automated tests.
