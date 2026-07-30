@@ -202,22 +202,7 @@ export const writeEstimatedRatings = (
       AND rating IS NULL
   `);
 
-  const copyToCanonicalAliases = db.prepare(`
-    UPDATE problems
-    SET
-      estimated_rating = @estimatedRating,
-      estimated_rating_at = @estimatedAt
-    WHERE canonical_id = (
-      SELECT canonical_id
-      FROM problems
-      WHERE contest_id = @contestId AND problem_index = @problemIndex
-    )
-      AND rating IS NULL
-      AND NOT (contest_id = @contestId AND problem_index = @problemIndex)
-  `);
-
   for (const estimate of estimates) {
     update.run(estimate);
-    copyToCanonicalAliases.run(estimate);
   }
 };

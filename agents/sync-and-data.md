@@ -38,9 +38,10 @@ Problems list dedup uses `problems.canonical_id`, not rating/tags metadata.
 When Codeforces has not published an official problem `rating` yet, CFList may store a clist-style `estimated_rating` (Elo expected-solves binary search over the rated field from `contest.ratingChanges`, using in-contest solve counts from standings when available).
 
 - `problems.rating` stays official-only; estimates never overwrite it.
-- Eligibility: contest ended (`start + duration <= now`), phase is `FINISHED` when set (never `CODING` / system-test phases), and non-empty rating changes exist. Live-contest hydration may import problems but must not estimate.
+- Eligibility: contest ended (`start + duration <= now`), phase is `FINISHED` when set (never `CODING` / system-test phases), and non-empty rating changes exist. Live-contest hydration may import problems but must not estimate. Hydration prefers fresh `standings.contest` metadata over a possibly stale DB contest row.
 - Primary trigger: after contest hydration once rating changes are available.
-- Secondary: metadata refresh one-shot for unrated rows still missing an estimate (uses cached rating changes + catalog `solved_count`; does not recalculate every hour as upsolve counts grow).
+- Secondary: metadata refresh one-shot for unrated rows still missing an estimate (fetches standings for in-contest solve counts; does not use catalog `solved_count`, which includes upsolves). Does not recalculate every hour once an estimate exists.
+- Each contest placement is estimated independently (no cross-contest canonical alias copy); Div. 1/Div. 2 share a task but have different rated fields.
 - When an official rating arrives via catalog/metadata upsert, `estimated_rating` is cleared.
 - UI/filters use `COALESCE(rating, estimated_rating)`; estimated values display as `~1500`.
 

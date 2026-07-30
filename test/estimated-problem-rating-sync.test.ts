@@ -181,7 +181,7 @@ test("hydration does not estimate during a live contest", async () => {
 test("metadata estimate pass fills missing estimates from cached rating changes", async () => {
   const db = createTestDb();
   seedFinishedContest(db, 102, "FINISHED", true);
-  seedUnratedProblem(db, 102, "A", 5);
+  seedUnratedProblem(db, 102, "A");
 
   db.prepare(
     `
@@ -193,12 +193,108 @@ test("metadata estimate pass fills missing estimates from cached rating changes"
   const client = new FakeClient();
   const updated = await estimateMissingProblemRatings(db, client as never);
   assert.equal(updated, 1);
+  assert.equal(client.standingsCalls, 1);
 
   const row = db
     .prepare("SELECT estimated_rating FROM problems WHERE contest_id = 102 AND problem_index = 'A'")
     .get() as { estimated_rating: number | null };
   assert.equal(row.estimated_rating, 2000);
   assert.equal(client.ratingChangesCalls, 0);
+  db.close();
+});
+
+test("hydration prefers standings contest metadata over stale DB phase", async () => {
+  const db = createTestDb();
+  const userId = randomUUID();
+  seedUser(db, userId, "user0");
+  // Local row still looks live / incomplete, but standings report FINISHED.
+  seedFinishedContest(db, 105, "CODING", false);
+  db.prepare("UPDATE contests SET duration_seconds = NULL WHERE id = 105").run();
+  seedUnratedProblem(db, 105, "A");
+
+  db.prepare(
+    `
+    INSERT INTO user_contest_results (
+      user_id, contest_id, rank, old_rating, new_rating, rating_delta, last_checked_at
+    ) VALUES (@userId, 105, 2, 2000, 2000, 0, '2026-01-01T00:00:00.000Z')
+  `,
+  ).run({ userId });
+
+  const client = new FakeClient();
+  client.contestPhase = "FINISHED";
+  client.contestEnded = true;
+  await hydrateUserContestResult(db, userId, "user0", 105, client as never);
+
+  const row = db
+    .prepare("SELECT estimated_rating FROM problems WHERE contest_id = 105 AND problem_index = 'A'")
+    .get() as { estimated_rating: number | null };
+  assert.equal(row.estimated_rating, 2000);
+  db.close();
+});
+
+test("estimates do not copy across canonical aliases in paired contests", async () => {
+  const db = createTestDb();
+  const userId = randomUUID();
+  const canonicalId = randomUUID();
+  seedUser(db, userId, "user0");
+  seedFinishedContest(db, 106, "FINISHED", true);
+  seedFinishedContest(db, 107, "FINISHED", true);
+
+  upsertProblemWithTags(
+    db,
+    {
+      contestId: 106,
+      problemIndex: "A",
+      name: "Shared",
+      type: "PROGRAMMING",
+      points: null,
+      rating: null,
+      tags: [],
+      url: "https://codeforces.com/contest/106/problem/A",
+      rawJson: "{}",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+    "catalog",
+  );
+  upsertProblemWithTags(
+    db,
+    {
+      contestId: 107,
+      problemIndex: "D",
+      name: "Shared",
+      type: "PROGRAMMING",
+      points: null,
+      rating: null,
+      tags: [],
+      url: "https://codeforces.com/contest/107/problem/D",
+      rawJson: "{}",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+    "catalog",
+  );
+  db.prepare("UPDATE problems SET canonical_id = @canonicalId").run({ canonicalId });
+
+  db.prepare(
+    `
+    INSERT INTO user_contest_results (
+      user_id, contest_id, rank, old_rating, new_rating, rating_delta, last_checked_at
+    ) VALUES (@userId, 106, 2, 2000, 2000, 0, '2026-01-01T00:00:00.000Z')
+  `,
+  ).run({ userId });
+
+  const client = new FakeClient();
+  client.solvesA = 5;
+  await hydrateUserContestResult(db, userId, "user0", 106, client as never);
+
+  const div2 = db
+    .prepare("SELECT estimated_rating FROM problems WHERE contest_id = 106 AND problem_index = 'A'")
+    .get() as { estimated_rating: number | null };
+  const div1 = db
+    .prepare("SELECT estimated_rating FROM problems WHERE contest_id = 107 AND problem_index = 'D'")
+    .get() as { estimated_rating: number | null };
+
+  assert.equal(div2.estimated_rating, 2000);
+  assert.equal(div1.estimated_rating, null);
   db.close();
 });
 

@@ -14,22 +14,21 @@ import { now } from "./helpers.js";
 const listUnratedProblemsNeedingEstimate = (
   db: Db,
   contestId?: number,
-): Array<{ contestId: number; problemIndex: string; solvedCount: number | null }> => {
+): Array<{ contestId: number; problemIndex: string }> => {
   if (contestId !== undefined) {
     return db
       .prepare(
         `
         SELECT
           contest_id AS contestId,
-          problem_index AS problemIndex,
-          solved_count AS solvedCount
+          problem_index AS problemIndex
         FROM problems
         WHERE contest_id = @contestId
           AND rating IS NULL
           AND estimated_rating IS NULL
       `,
       )
-      .all({ contestId }) as Array<{ contestId: number; problemIndex: string; solvedCount: number | null }>;
+      .all({ contestId }) as Array<{ contestId: number; problemIndex: string }>;
   }
 
   return db
@@ -37,14 +36,13 @@ const listUnratedProblemsNeedingEstimate = (
       `
       SELECT
         contest_id AS contestId,
-        problem_index AS problemIndex,
-        solved_count AS solvedCount
+        problem_index AS problemIndex
       FROM problems
       WHERE rating IS NULL
         AND estimated_rating IS NULL
     `,
     )
-    .all() as Array<{ contestId: number; problemIndex: string; solvedCount: number | null }>;
+    .all() as Array<{ contestId: number; problemIndex: string }>;
 };
 
 const loadContestRow = (db: Db, contestId: number): CfContest | undefined => {
@@ -89,6 +87,18 @@ const applyEstimates = (
   return estimates.length;
 };
 
+const estimateFromStandings = (
+  db: Db,
+  contestId: number,
+  standings: CfStandings,
+  changes: CfRatingChange[],
+  problemIndexes: string[],
+): number => {
+  const oldRatings = oldRatingsFromChanges(changes);
+  const solvedByIndex = countContestSolves(standings);
+  return applyEstimates(db, contestId, oldRatings, solvedByIndex, problemIndexes);
+};
+
 /**
  * After hydration: estimate unrated problems using in-memory standings solve counts
  * when the contest is finished and rating changes are available.
@@ -113,20 +123,19 @@ export const maybeEstimateProblemRatingsAfterHydration = async (
   }
   if (changes.length === 0) return 0;
 
-  const oldRatings = oldRatingsFromChanges(changes);
-  const solvedByIndex = countContestSolves(standings);
-  return applyEstimates(
+  return estimateFromStandings(
     db,
     contestId,
-    oldRatings,
-    solvedByIndex,
+    standings,
+    changes,
     needing.map((row) => row.problemIndex),
   );
 };
 
 /**
- * One-shot pass for unrated problems that still lack an estimate, using cached
- * rating changes and catalog solved_count as a fallback solver count.
+ * One-shot pass for unrated problems that still lack an estimate. Uses cached
+ * (or fetched) rating changes plus a fresh standings fetch for in-contest solve
+ * counts — never catalog solved_count, which includes upsolves worldwide.
  */
 export const estimateMissingProblemRatings = async (
   db: Db,
@@ -157,15 +166,21 @@ export const estimateMissingProblemRatings = async (
     }
     if (!changes || changes.length === 0) continue;
 
-    const oldRatings = oldRatingsFromChanges(changes);
-    const solvedByIndex = new Map(
-      problems.map((problem) => [problem.problemIndex, problem.solvedCount ?? 0]),
-    );
-    updated += applyEstimates(
+    let standings: CfStandings;
+    try {
+      standings = await client.contestStandings(contestId);
+    } catch {
+      continue;
+    }
+
+    // Prefer fresh standings contest metadata when present.
+    if (!isContestEligibleForProblemRatingEstimate(standings.contest ?? contest)) continue;
+
+    updated += estimateFromStandings(
       db,
       contestId,
-      oldRatings,
-      solvedByIndex,
+      standings,
+      changes,
       problems.map((problem) => problem.problemIndex),
     );
   }

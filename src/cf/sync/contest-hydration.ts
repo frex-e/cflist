@@ -313,7 +313,9 @@ export const hydrateUserContestResult = async (
     client,
     contestId,
     standings,
-    contest ?? standings.contest,
+    // Prefer fresh standings contest metadata over a possibly stale DB row
+    // (phase/duration may still say CODING after the round finished).
+    standings.contest ?? contest,
   );
 
   return true;
