@@ -536,6 +536,48 @@ test("contests page all filter shows catalog-only contests with unsolved pills",
   });
 });
 
+test("contests page keeps catalog pills visible while contest hydration is loading", async () => {
+  await withApp(async (app, db) => {
+    const cookie = await signUp(app, db);
+    const user = db.prepare(`SELECT id FROM "user" WHERE email = 'user@example.com'`).get() as { id: string };
+
+    db.prepare(
+      `
+      INSERT INTO contest_sync_jobs (
+        user_id,
+        cf_handle,
+        contest_id,
+        priority,
+        status,
+        attempts,
+        available_at,
+        created_at,
+        updated_at
+      ) VALUES (
+        @userId,
+        'inj',
+        1099,
+        0,
+        'queued',
+        0,
+        '2026-01-01T00:00:00.000Z',
+        '2026-01-01T00:00:00.000Z',
+        '2026-01-01T00:00:00.000Z'
+      )
+    `,
+    ).run({ userId: user.id });
+
+    const response = await app.request("/contests", { headers: { cookie } });
+    const html = await response.text();
+    const row = html.match(/<tr>[\s\S]*?contest\/1099"[\s\S]*?<\/tr>/)?.[0] ?? "";
+
+    assert.equal(response.status, 200);
+    assert.match(row, /contest-problem-pill unsolved/);
+    assert.match(row, /contest-hydration-spinner/);
+    assert.match(row, /Loading…/);
+  });
+});
+
 test("contests page all filter paginates full catalog without user rows", async () => {
   await withApp(async (app, db) => {
     const cookie = await signUp(app, db);

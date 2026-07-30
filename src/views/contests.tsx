@@ -193,10 +193,15 @@ const isCatalogOnlyRow = (row: ContestResultRow): boolean =>
   && row.performance === null
   && !row.hydration_status;
 
+const HydrationLoading = () => (
+  <span class="contest-hydration-loading muted" role="status">
+    <span class="contest-hydration-spinner" aria-hidden="true"></span>
+    Loading…
+  </span>
+);
+
 const ProblemPillsCell = ({ row }: { row: ContestResultRow }) => {
-  if (row.hydration_status === "queued" || row.hydration_status === "running") {
-    return <span class="muted">Loading…</span>;
-  }
+  const loading = row.hydration_status === "queued" || row.hydration_status === "running";
 
   if (row.hydration_status === "failed") {
     return (
@@ -212,9 +217,12 @@ const ProblemPillsCell = ({ row }: { row: ContestResultRow }) => {
         {row.problems.map((problem) => (
           <ProblemPill problem={problem} />
         ))}
+        {loading ? <HydrationLoading /> : null}
       </div>
     );
   }
+
+  if (loading) return <HydrationLoading />;
 
   if (isCatalogOnlyRow(row)) return null;
 
