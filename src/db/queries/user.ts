@@ -76,6 +76,48 @@ export const hasSuccessfulUserSyncRun = (db: Db, userId: string): boolean => {
   return Boolean(row);
 };
 
+export type ManualUserSyncCooldown =
+  | { allowed: true }
+  | { allowed: false; retryAfterMs: number; lastFinishedAt: string };
+
+export const getManualUserSyncCooldown = (
+  db: Db,
+  userId: string,
+  intervalMs: number,
+  nowMs: number = Date.now(),
+): ManualUserSyncCooldown => {
+  if (intervalMs <= 0) return { allowed: true };
+
+  const row = db
+    .prepare(
+      `
+      SELECT finished_at
+      FROM sync_runs
+      WHERE source = 'codeforces:user'
+        AND user_id = @userId
+        AND status = 'success'
+        AND finished_at IS NOT NULL
+      ORDER BY id DESC
+      LIMIT 1
+    `,
+    )
+    .get({ userId }) as { finished_at: string } | undefined;
+
+  if (!row) return { allowed: true };
+
+  const finishedAt = Date.parse(row.finished_at);
+  if (!Number.isFinite(finishedAt)) return { allowed: true };
+
+  const elapsed = nowMs - finishedAt;
+  if (elapsed >= intervalMs) return { allowed: true };
+
+  return {
+    allowed: false,
+    retryAfterMs: Math.max(0, intervalMs - elapsed),
+    lastFinishedAt: row.finished_at,
+  };
+};
+
 export const problemCount = (db: Db): number => {
   const row = db.prepare("SELECT COUNT(*) AS count FROM problems").get() as { count: number };
   return row.count;

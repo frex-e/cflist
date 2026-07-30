@@ -4,12 +4,15 @@ import test from "node:test";
 import {
   getContestSyncJobCounts,
   getContestSyncJobsByContest,
+  getManualUserSyncCooldown,
   hasPendingContestSyncJobs,
   isStuckUserSyncRun,
-} from "../src/db/queries/sync-jobs.js";
+} from "../src/db/queries.js";
 import { buildSyncPanelOptions } from "../src/http/sync-panel.js";
-import { syncPanelHtml, syncPanelResponseHeaders } from "../src/views/sync-panel.js";
+import { formatRetryAfter, syncPanelHtml, syncPanelResponseHeaders } from "../src/views/sync-panel.js";
 import { createTestDb, signUp, withTestApp } from "./helpers.js";
+
+const HOUR_MS = 60 * 60 * 1000;
 
 test("getContestSyncJobCounts groups contest job statuses", () => {
   const db = createTestDb();
@@ -171,6 +174,230 @@ test("sync POST returns panel HTML for HTMX requests", async () => {
     assert.equal(response.status, 200);
     assert.match(html, /data-sync-panel/);
     assert.doesNotMatch(html, /HX-Redirect/i);
+
+    const user = db.prepare(`SELECT id FROM "user" WHERE email = 'user@example.com'`).get() as { id: string };
+    const { syncState } = await import("../src/cf/sync/state.js");
+    syncState.userRunning.delete(user.id);
+  });
+});
+
+test("getManualUserSyncCooldown blocks recent successful syncs", () => {
+  const db = createTestDb();
+  try {
+    db.prepare(
+      `
+      INSERT INTO "user" (
+        id, name, email, emailVerified, createdAt, updatedAt, cfHandle
+      ) VALUES (
+        'user-1', 'Test User', 'user@example.com', 0,
+        '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'tourist'
+      )
+    `,
+    ).run();
+
+    const now = Date.parse("2026-07-30T12:00:00.000Z");
+    db.prepare(
+      `
+      INSERT INTO sync_runs (started_at, finished_at, status, source, user_id, cf_handle, message)
+      VALUES (
+        '2026-07-30T11:30:00.000Z',
+        '2026-07-30T11:30:00.000Z',
+        'success',
+        'codeforces:user',
+        'user-1',
+        'tourist',
+        'done'
+      )
+    `,
+    ).run();
+
+    const blocked = getManualUserSyncCooldown(db, "user-1", HOUR_MS, now);
+    assert.equal(blocked.allowed, false);
+    if (!blocked.allowed) {
+      assert.equal(blocked.retryAfterMs, 30 * 60 * 1000);
+      assert.equal(blocked.lastFinishedAt, "2026-07-30T11:30:00.000Z");
+    }
+
+    const allowed = getManualUserSyncCooldown(db, "user-1", HOUR_MS, now + 31 * 60 * 1000);
+    assert.equal(allowed.allowed, true);
+  } finally {
+    db.close();
+  }
+});
+
+test("getManualUserSyncCooldown allows when latest success is old or missing", () => {
+  const db = createTestDb();
+  try {
+    db.prepare(
+      `
+      INSERT INTO "user" (
+        id, name, email, emailVerified, createdAt, updatedAt, cfHandle
+      ) VALUES (
+        'user-1', 'Test User', 'user@example.com', 0,
+        '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'tourist'
+      )
+    `,
+    ).run();
+
+    const now = Date.parse("2026-07-30T12:00:00.000Z");
+    assert.equal(getManualUserSyncCooldown(db, "user-1", HOUR_MS, now).allowed, true);
+
+    db.prepare(
+      `
+      INSERT INTO sync_runs (started_at, finished_at, status, source, user_id, cf_handle, message)
+      VALUES (
+        '2026-07-30T11:55:00.000Z',
+        '2026-07-30T11:55:00.000Z',
+        'failed',
+        'codeforces:user',
+        'user-1',
+        'tourist',
+        'boom'
+      )
+    `,
+    ).run();
+    assert.equal(getManualUserSyncCooldown(db, "user-1", HOUR_MS, now).allowed, true);
+
+    db.prepare(
+      `
+      INSERT INTO sync_runs (started_at, finished_at, status, source, user_id, cf_handle, message)
+      VALUES (
+        '2026-07-30T10:00:00.000Z',
+        '2026-07-30T10:00:00.000Z',
+        'success',
+        'codeforces:user',
+        'user-1',
+        'tourist',
+        'done'
+      )
+    `,
+    ).run();
+    assert.equal(getManualUserSyncCooldown(db, "user-1", HOUR_MS, now).allowed, true);
+  } finally {
+    db.close();
+  }
+});
+
+test("formatRetryAfter rounds up to whole minutes", () => {
+  assert.equal(formatRetryAfter(1), "1m");
+  assert.equal(formatRetryAfter(30 * 60 * 1000), "30m");
+  assert.equal(formatRetryAfter(60 * 60 * 1000), "1h");
+  assert.equal(formatRetryAfter(90 * 60 * 1000), "1h 30m");
+});
+
+test("sync POST rate-limits recent successful syncs", async () => {
+  await withTestApp(async (app, db) => {
+    const cookie = await signUp(app, db);
+    const user = db.prepare(`SELECT id FROM "user" WHERE email = 'user@example.com'`).get() as { id: string };
+    const recent = new Date().toISOString();
+
+    db.prepare(
+      `
+      UPDATE sync_runs
+      SET started_at = @recent, finished_at = @recent, status = 'success'
+      WHERE source = 'codeforces:user' AND user_id = @userId
+    `,
+    ).run({ recent, userId: user.id });
+
+    const runCountBefore = (
+      db.prepare(`SELECT COUNT(*) AS count FROM sync_runs WHERE user_id = @userId`).get({ userId: user.id }) as {
+        count: number;
+      }
+    ).count;
+
+    const { syncState } = await import("../src/cf/sync/state.js");
+    syncState.userRunning.delete(user.id);
+
+    const response = await app.request("/admin/sync", {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/x-www-form-urlencoded",
+        "hx-request": "true",
+      },
+      body: new URLSearchParams({
+        returnTo: "/problems",
+        refreshPage: "problems",
+      }).toString(),
+    });
+
+    const html = await response.text();
+    assert.equal(response.status, 200);
+    assert.match(html, /Synced recently — next sync available in/);
+    assert.match(html, /data-sync-cooldown="true"/);
+    assert.match(html, /disabled/);
+    assert.equal(syncState.userRunning.has(user.id), false);
+
+    const runCountAfter = (
+      db.prepare(`SELECT COUNT(*) AS count FROM sync_runs WHERE user_id = @userId`).get({ userId: user.id }) as {
+        count: number;
+      }
+    ).count;
+    assert.equal(runCountAfter, runCountBefore);
+  });
+});
+
+test("sync panel shows cooldown copy after recent success", async () => {
+  await withTestApp(async (app, db) => {
+    const cookie = await signUp(app, db);
+    const user = db.prepare(`SELECT id FROM "user" WHERE email = 'user@example.com'`).get() as { id: string };
+    const recent = new Date().toISOString();
+
+    db.prepare(
+      `
+      UPDATE sync_runs
+      SET started_at = @recent, finished_at = @recent, status = 'success', message = 'done'
+      WHERE source = 'codeforces:user' AND user_id = @userId
+    `,
+    ).run({ recent, userId: user.id });
+
+    const response = await app.request("/admin/sync/panel?returnTo=%2Fproblems&refreshPage=problems", {
+      headers: { cookie, "hx-request": "true" },
+    });
+    const html = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.match(html, /Last synced at .* · next sync in /);
+    assert.match(html, /data-sync-cooldown="true"/);
+    assert.match(html, /disabled/);
+  });
+});
+
+test("sync POST allows retry after failed sync", async () => {
+  await withTestApp(async (app, db) => {
+    const cookie = await signUp(app, db);
+    const user = db.prepare(`SELECT id FROM "user" WHERE email = 'user@example.com'`).get() as { id: string };
+    const recent = new Date().toISOString();
+
+    db.prepare(`DELETE FROM sync_runs WHERE user_id = @userId`).run({ userId: user.id });
+    db.prepare(
+      `
+      INSERT INTO sync_runs (started_at, finished_at, status, source, user_id, cf_handle, message)
+      VALUES (@recent, @recent, 'failed', 'codeforces:user', @userId, 'tourist', 'boom')
+    `,
+    ).run({ recent, userId: user.id });
+
+    const { syncState } = await import("../src/cf/sync/state.js");
+    syncState.userRunning.delete(user.id);
+
+    const response = await app.request("/admin/sync", {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/x-www-form-urlencoded",
+        "hx-request": "true",
+      },
+      body: new URLSearchParams({
+        returnTo: "/problems",
+        refreshPage: "problems",
+      }).toString(),
+    });
+
+    const html = await response.text();
+    assert.equal(response.status, 200);
+    assert.match(html, /Syncing from Codeforces/);
+    assert.equal(syncState.userRunning.has(user.id), true);
+    syncState.userRunning.delete(user.id);
   });
 });
 
