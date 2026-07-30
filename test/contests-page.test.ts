@@ -291,10 +291,10 @@ test("contests page shows yellow skipped pills without overriding CF solved stat
     assert.match(html, /contest-problem-pill contest-solved/);
     assert.match(html, /contest-problem-pill upsolved/);
     assert.match(html, /contest-problem-pill skipped/);
-    assert.match(html, /title="C — Problem C \(1,600\): skipped"/);
+    assert.match(html, /title="C — Problem C \(1600\): skipped"/);
     // Skipped must not replace CF contest-solved / upsolved fills.
     assert.match(html, /title="A — Problem A \(800\): solved in contest"/);
-    assert.match(html, /title="B — Problem B \(1,200\): upsolved after contest"/);
+    assert.match(html, /title="B — Problem B \(1200\): upsolved after contest"/);
   });
 });
 
