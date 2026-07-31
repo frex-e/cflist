@@ -30,14 +30,16 @@ If an old local DB still has leftover free pages after dropping that cache, recl
 
 ## Feature / UI demonstrations
 
-When adding a new feature or UI element, demonstrate it in the running app before considering the work done. A short screen recording or a screenshot that shows the feature in use is fine. Attach or link the artifacts in the PR/walkthrough summary.
+When adding a new feature or UI element, exercise it manually in the running app before considering the work done. Prefer screenshots that show the feature in use; attach or link them in the PR/walkthrough summary.
+
+Use video only when a static shot cannot show the interaction. Keep recordings short and compress them so they stay under artifact size limits.
 
 Use the shared test account and live synced data (not fake DB rows):
 
 1. Ensure the seed ran (`npm run seed:test-user` if needed).
 2. Sign in as `test@cflist.local` / `cflist-test-password` (or the configured `TEST_USER_*` overrides).
 3. Open Problems or Contests so background sync can pull real Codeforces data for handle `inj`.
-4. Exercise the new control/flow with that real data and capture the demo.
+4. Manually exercise the new control/flow with that real data and capture screenshots (or a short compressed video if needed).
 
 Do not inject synthetic problems, contests, standings, or solved overrides into SQLite just for a walkthrough or recording. Hand-written rows often miss real column shapes, sync timing, estimated ratings, and contest hydration behavior. Keep synthetic fixtures in automated tests (`npm test`); use live synced data for agent/manual demos.
 
