@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   DEV_AUTH_SECRET,
+  isAdminEmail,
+  resolveAdminEmails,
   resolveAuthGitHubOnly,
   validateProductionConfig,
 } from "../src/config.js";
@@ -65,6 +67,19 @@ test("resolveAuthGitHubOnly defaults to true in production", () => {
     }),
     true,
   );
+});
+
+test("resolveAdminEmails and isAdminEmail", () => {
+  assert.deepEqual(resolveAdminEmails({}), []);
+  assert.deepEqual(
+    resolveAdminEmails({ ADMIN_EMAILS: "Ops@Example.com, other@x.com" }),
+    ["ops@example.com", "other@x.com"],
+  );
+  assert.equal(
+    isAdminEmail("ops@example.com", { ADMIN_EMAILS: "Ops@Example.com" }),
+    true,
+  );
+  assert.equal(isAdminEmail("nope@example.com", { ADMIN_EMAILS: "Ops@Example.com" }), false);
 });
 
 test("validateProductionConfig passes with valid production env", () => {
