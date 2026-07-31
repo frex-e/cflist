@@ -19,7 +19,8 @@ export const parseCatalogLookup = (raw: string): CatalogLookup | undefined => {
   return {
     kind: "problem",
     contestId: Number.parseInt(match[1]!, 10),
-    problemIndex: match[2]!,
+    // Codeforces indices are stored uppercase (A, B1, …); normalize lookup input.
+    problemIndex: match[2]!.toUpperCase(),
   };
 };
 
@@ -69,7 +70,7 @@ export const getContestRepairSummary = (
       `
       SELECT
         COUNT(*) AS problemCount,
-        SUM(CASE WHEN estimated_rating IS NOT NULL THEN 1 ELSE 0 END) AS estimatedCount
+        COALESCE(SUM(CASE WHEN estimated_rating IS NOT NULL THEN 1 ELSE 0 END), 0) AS estimatedCount
       FROM problems
       WHERE contest_id = @contestId
     `,
@@ -91,7 +92,8 @@ export const getContestRepairSummary = (
       `
       SELECT
         COUNT(*) AS userResultCount,
-        SUM(CASE WHEN standings_checked_at IS NOT NULL THEN 1 ELSE 0 END) AS hydratedUserCount
+        COALESCE(SUM(CASE WHEN standings_checked_at IS NOT NULL THEN 1 ELSE 0 END), 0)
+          AS hydratedUserCount
       FROM user_contest_results
       WHERE contest_id = @contestId
     `,
@@ -102,11 +104,11 @@ export const getContestRepairSummary = (
     contestId: contest.id,
     name: contest.name,
     phase: contest.phase,
-    problemCount: problemStats.problemCount,
-    estimatedCount: problemStats.estimatedCount,
+    problemCount: Number(problemStats.problemCount),
+    estimatedCount: Number(problemStats.estimatedCount),
     hasRatingChangesCache: Boolean(cache),
-    userResultCount: userStats.userResultCount,
-    hydratedUserCount: userStats.hydratedUserCount,
+    userResultCount: Number(userStats.userResultCount),
+    hydratedUserCount: Number(userStats.hydratedUserCount),
   };
 };
 

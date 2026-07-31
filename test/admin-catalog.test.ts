@@ -11,6 +11,7 @@ import {
   clearProblemEstimate,
   dropContestRatingChangesCache,
   forceRehydrateContestForAllUsers,
+  getContestRepairSummary,
   parseCatalogLookup,
 } from "../src/db/writes/catalog-repair.js";
 import { seedContest, seedProblem } from "./helpers.js";
@@ -91,13 +92,55 @@ test("parseCatalogLookup accepts contest ids and problem keys", () => {
     contestId: 1900,
     problemIndex: "A",
   });
+  assert.deepEqual(parseCatalogLookup("1900a"), {
+    kind: "problem",
+    contestId: 1900,
+    problemIndex: "A",
+  });
   assert.deepEqual(parseCatalogLookup("1900B1"), {
+    kind: "problem",
+    contestId: 1900,
+    problemIndex: "B1",
+  });
+  assert.deepEqual(parseCatalogLookup("1900b1"), {
     kind: "problem",
     contestId: 1900,
     problemIndex: "B1",
   });
   assert.equal(parseCatalogLookup(""), undefined);
   assert.equal(parseCatalogLookup("A1900"), undefined);
+});
+
+test("getContestRepairSummary coalesces empty SUM aggregates to zero", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+  seedContest(db, { id: 99, name: "Empty Round" });
+
+  const summary = getContestRepairSummary(db, 99);
+  assert.ok(summary);
+  assert.equal(summary.problemCount, 0);
+  assert.equal(summary.estimatedCount, 0);
+  assert.equal(summary.userResultCount, 0);
+  assert.equal(summary.hydratedUserCount, 0);
+  assert.equal(summary.hasRatingChangesCache, false);
+  db.close();
+});
+
+test("GET /admin/catalog finds problems with lowercase index input", async () => {
+  await withAdminApp("admin@example.com", async (app, db, cookie) => {
+    seedContest(db, { id: 1900, name: "Round 1900" });
+    seedProblem(db, { contestId: 1900, index: "A", name: "Problem A" });
+
+    const response = await app.request("/admin/catalog?q=1900a", {
+      headers: { cookie },
+    });
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.match(html, /Problem 1900A/);
+    assert.match(html, /Problem A/);
+    assert.doesNotMatch(html, /not found/i);
+  }, "admin@example.com");
 });
 
 test("GET /admin/catalog redirects unsigned users to sign-in", async () => {
