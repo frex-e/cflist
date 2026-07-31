@@ -14,6 +14,10 @@ import { SyncPanel } from "./sync-panel.js";
 import { LoadMore } from "./load-more.js";
 import { rangeLabel } from "./pagination.js";
 import {
+  nextLocalStatusValue,
+  readLocalStatusView,
+} from "./problems/local-status.js";
+import {
   pageNav,
   problemListUrl,
   type ProblemsPageOptions,
@@ -59,12 +63,6 @@ const sourceLabel = (row: ProblemRow): string => {
   return "unsolved";
 };
 
-const nextLocalStatus = (row: ProblemRow): "" | "skipped" | "solved" => {
-  if (row.solved_override === 1) return "";
-  if (row.skipped === 1) return "solved";
-  return "skipped";
-};
-
 const StatusControl = (props: { row: ProblemRow }) => {
   const { row } = props;
   const action = `/problems/${row.contest_id}/${encodeURIComponent(row.problem_index)}/override`;
@@ -77,9 +75,10 @@ const StatusControl = (props: { row: ProblemRow }) => {
     );
   }
 
-  const isManualSolved = row.solved_override === 1;
-  const isSkipped = row.skipped === 1 && !isManualSolved;
-  const nextStatus = nextLocalStatus(row);
+  const localStatus = readLocalStatusView(row);
+  const isManualSolved = localStatus === "solved";
+  const isSkipped = localStatus === "skipped";
+  const nextStatus = nextLocalStatusValue(localStatus);
   const buttonClass = isManualSolved
     ? "solved manual-solved"
     : isSkipped
@@ -92,7 +91,15 @@ const StatusControl = (props: { row: ProblemRow }) => {
       : "Mark skipped";
 
   return (
-    <form class="status-form" method="post" action={action} hx-post={action} hx-target="#problem-list" hx-swap="outerHTML">
+    <form
+      class="status-form"
+      method="post"
+      action={action}
+      hx-post={action}
+      hx-target="#problem-list"
+      hx-swap="outerHTML"
+      hx-disabled-elt="find button"
+    >
       <input type="hidden" name="localStatus" value={nextStatus} />
       <button class={`status status-button ${buttonClass}`} type="submit" title={title}>
         {isManualSolved ? "✓" : isSkipped ? "–" : ""}
@@ -105,6 +112,11 @@ const problemRowClass = (row: ProblemRow): string => {
   if (row.effective_solved) return "problem-row solved-row";
   if (row.skipped === 1) return "problem-row skipped-row";
   return "problem-row";
+};
+
+const localStatusAttr = (row: ProblemRow): string | undefined => {
+  if (row.cf_solved === 1) return undefined;
+  return readLocalStatusView(row);
 };
 
 const ProblemRow = (props: { row: ProblemRow; showTags: boolean }) => {
@@ -123,6 +135,7 @@ const ProblemRow = (props: { row: ProblemRow; showTags: boolean }) => {
       data-problem-row
       data-contest-id={row.contest_id}
       data-problem-index={row.problem_index}
+      data-local-status={localStatusAttr(row)}
     >
       <td data-status-cell>
         <StatusControl row={row} />
@@ -418,7 +431,7 @@ export const problemsPage = (options: ProblemsPageOptions): string => {
     user: options.user,
     activeNav: "problems",
     requiresJs: true,
-    scripts: ["/public/filters.js"],
+    scripts: ["/public/filters.js", "/public/status.js"],
     body: (
       <>
         <PageHero

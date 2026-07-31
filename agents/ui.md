@@ -1,6 +1,6 @@
 # UI behavior
 
-Server-rendered Hono TSX views under `src/views/`. `filters.js` loads only on `/problems` (rating slider, direction label, Set default save). Problems and Contests show a `<noscript>` banner; interactive UI requires JavaScript.
+Server-rendered Hono TSX views under `src/views/`. `filters.js` and `status.js` load only on `/problems` (rating slider, direction label, Set default save; optimistic solved/skipped toggles). Problems and Contests show a `<noscript>` banner; interactive UI requires JavaScript.
 
 When adding or changing a visible UI element, demonstrate it in the running app with a screen recording or a screenshot, using the shared test account and synced Codeforces data. See [ops.md](./ops.md#feature--ui-demonstrations).
 
@@ -22,7 +22,7 @@ When adding or changing a visible UI element, demonstrate it in the running app 
 - Search (`q`) matches problem names, ids such as `1900A`, and raw contest names.
 - Rating column shows official CF rating, or `~N` when only a clist-style estimate exists (`title` explains estimated). Rank dots and min/max filters use `COALESCE(official, estimated)`.
 - De-duplicates shared Div. 1/Div. 2 aliases by `canonical_id` (round pairing + same problem name) after filters; aggregates CF solved state and manual overrides across the alias group. Contest history preserves contest-specific indices.
-- Solved/skipped toggles POST and re-render `#problem-list` plus summary via HTMX so rows disappear under filters like `solved=unsolved` or `solved=skipped`. One control cycles unsolved → skipped → solved → unsolved (yellow row / green row). Override is stored per `canonical_id` (all placements share one toggle). Filter context comes from the `HX-Current-URL` header.
+- Solved/skipped toggles POST and re-render `#problem-list` plus summary via HTMX so rows disappear under filters like `solved=unsolved` or `solved=skipped`. `status.js` applies the new button/row/summary state immediately (`htmx:beforeRequest`) and hides rows that the current `solved` filter would exclude; the HTMX swap remains the source of truth and errors revert the optimistic paint. One control cycles unsolved → skipped → solved → unsolved (yellow row / green row). Override is stored per `canonical_id` (all placements share one toggle). Filter context comes from the `HX-Current-URL` header.
 - Filter `solved` accepts `all|solved|skipped|unsolved`; unsolved excludes skipped. Summary reports matched / solved / skipped / unsolved.
 - Filter changes fetch `/problems/fragment`, swap the table, and update the canonical URL.
 - `Set default` posts to `/preferences/default-filters` via `fetch` in `filters.js` for inline status.
