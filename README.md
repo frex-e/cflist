@@ -41,6 +41,10 @@ npm run sync
 npm test
 ```
 
+## CI
+
+Pull requests and pushes to `main` run [`.github/workflows/ci.yml`](./.github/workflows/ci.yml): Node 24 build (`tsc`), `npm test`, then a Docker image build. Wait for that workflow to pass before deploying.
+
 ## Deployment
 
 Build and run one Node process, with `data/` persisted.
