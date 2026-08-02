@@ -1,6 +1,8 @@
 export { acceptedProblemsFromSubmissions } from "../accepted-problems.js";
 export {
+  AUTO_USER_SYNC_BATCH_LIMIT,
   maybeStartUserSync,
+  runAutoUserSyncTick,
   syncDueActiveUsers,
   syncUsersForRecentlyEndedContests,
 } from "./auto-user-sync.js";

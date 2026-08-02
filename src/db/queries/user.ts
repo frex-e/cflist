@@ -148,11 +148,14 @@ export const listActiveUsersDueForDailySync = (
     activeWithinMs: number;
     minSyncAgeMs: number;
     nowMs?: number;
+    limit?: number;
   },
 ): AutoSyncUser[] => {
   const nowMs = options.nowMs ?? Date.now();
   const activeCutoff = new Date(nowMs - options.activeWithinMs).toISOString();
   const syncCutoff = new Date(nowMs - options.minSyncAgeMs).toISOString();
+  const nowIso = new Date(nowMs).toISOString();
+  const limit = Math.max(0, options.limit ?? Number.MAX_SAFE_INTEGER);
 
   return db
     .prepare(
@@ -165,6 +168,7 @@ export const listActiveUsersDueForDailySync = (
           FROM "session" s
           WHERE s.userId = u.id
             AND s.updatedAt >= @activeCutoff
+            AND s.expiresAt > @nowIso
         )
         AND NOT EXISTS (
           SELECT 1
@@ -175,9 +179,18 @@ export const listActiveUsersDueForDailySync = (
             AND r.finished_at IS NOT NULL
             AND r.finished_at >= @syncCutoff
         )
+      ORDER BY (
+        SELECT MAX(r.finished_at)
+        FROM sync_runs r
+        WHERE r.user_id = u.id
+          AND r.source = 'codeforces:user'
+          AND r.status = 'success'
+          AND r.finished_at IS NOT NULL
+      ) ASC NULLS FIRST
+      LIMIT @limit
     `,
     )
-    .all({ activeCutoff, syncCutoff }) as AutoSyncUser[];
+    .all({ activeCutoff, syncCutoff, nowIso, limit }) as AutoSyncUser[];
 };
 
 export const listUsersNeedingPostContestSync = (
@@ -185,57 +198,55 @@ export const listUsersNeedingPostContestSync = (
   options: {
     lookbackMs: number;
     nowMs?: number;
+    limit?: number;
   },
 ): AutoSyncUser[] => {
   const nowMs = options.nowMs ?? Date.now();
   const nowSeconds = Math.floor(nowMs / 1000);
   const lookbackCutoffSeconds = Math.floor((nowMs - options.lookbackMs) / 1000);
+  const limit = Math.max(0, options.limit ?? Number.MAX_SAFE_INTEGER);
 
-  const rows = db
+  return db
     .prepare(
       `
-      SELECT
-        u.id AS id,
-        u.cfHandle AS cfHandle,
-        (c.start_time_seconds + c.duration_seconds) AS contestEndSeconds,
-        (
-          SELECT r.finished_at
-          FROM sync_runs r
-          WHERE r.user_id = u.id
-            AND r.source = 'codeforces:user'
-            AND r.status = 'success'
-            AND r.finished_at IS NOT NULL
-          ORDER BY r.id DESC
-          LIMIT 1
-        ) AS lastFinishedAt
-      FROM user_contest_results ucr
-      JOIN contests c ON c.id = ucr.contest_id
-      JOIN "user" u ON u.id = ucr.user_id
+      SELECT u.id AS id, u.cfHandle AS cfHandle
+      FROM "user" u
       WHERE TRIM(u.cfHandle) != ''
-        AND c.start_time_seconds IS NOT NULL
-        AND c.duration_seconds IS NOT NULL
-        AND (c.start_time_seconds + c.duration_seconds) <= @nowSeconds
-        AND (c.start_time_seconds + c.duration_seconds) > @lookbackCutoffSeconds
+        AND EXISTS (
+          SELECT 1
+          FROM user_contest_results ucr
+          JOIN contests c ON c.id = ucr.contest_id
+          WHERE ucr.user_id = u.id
+            AND c.start_time_seconds IS NOT NULL
+            AND c.duration_seconds IS NOT NULL
+            AND (c.start_time_seconds + c.duration_seconds) <= @nowSeconds
+            AND (c.start_time_seconds + c.duration_seconds) > @lookbackCutoffSeconds
+            AND COALESCE(
+              (
+                SELECT unixepoch(r.finished_at)
+                FROM sync_runs r
+                WHERE r.user_id = u.id
+                  AND r.source = 'codeforces:user'
+                  AND r.status = 'success'
+                  AND r.finished_at IS NOT NULL
+                ORDER BY r.id DESC
+                LIMIT 1
+              ),
+              0
+            ) < (c.start_time_seconds + c.duration_seconds)
+        )
+      ORDER BY (
+        SELECT MAX(r.finished_at)
+        FROM sync_runs r
+        WHERE r.user_id = u.id
+          AND r.source = 'codeforces:user'
+          AND r.status = 'success'
+          AND r.finished_at IS NOT NULL
+      ) ASC NULLS FIRST
+      LIMIT @limit
     `,
     )
-    .all({ nowSeconds, lookbackCutoffSeconds }) as Array<{
-    id: string;
-    cfHandle: string;
-    contestEndSeconds: number;
-    lastFinishedAt: string | null;
-  }>;
-
-  const byUser = new Map<string, AutoSyncUser>();
-  for (const row of rows) {
-    if (byUser.has(row.id)) continue;
-    const lastFinishedAt = row.lastFinishedAt ? Date.parse(row.lastFinishedAt) : Number.NaN;
-    const contestEndMs = row.contestEndSeconds * 1000;
-    if (!Number.isFinite(lastFinishedAt) || lastFinishedAt < contestEndMs) {
-      byUser.set(row.id, { id: row.id, cfHandle: row.cfHandle });
-    }
-  }
-
-  return [...byUser.values()];
+    .all({ nowSeconds, lookbackCutoffSeconds, limit }) as AutoSyncUser[];
 };
 
 export const problemCount = (db: Db): number => {
