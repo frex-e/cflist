@@ -61,11 +61,13 @@ User sync refreshes catalog when the problem table is empty or the last successf
 
 Manual Sync (`POST /admin/sync`) is limited to one start per `USER_SYNC_INTERVAL_MINUTES` (default 60) after a successful user sync. The cooldown is keyed by auth user id and the latest successful `sync_runs` row (`source = codeforces:user`). Failed syncs may be retried immediately. Initial first-visit sync, handle change, and reset CF data call `runSyncInBackground` directly and are not rate-limited.
 
-**Auto user sync** (same cooldown helper via `maybeStartUserSync` in `src/cf/sync/auto-user-sync.ts`):
+**Auto user sync** (`src/cf/sync/auto-user-sync.ts`):
 
-- **On login:** Better Auth `session.create.after` starts a sync when the hourly window is open and the user has a Codeforces input. Disabled when `skipInitialSync` is set (tests).
-- **Daily active users:** server hourly timer (and once at boot) syncs users with a `"session".updatedAt` in the last `ACTIVE_USER_DAYS` (default 7) whose last successful user sync is older than `DAILY_USER_SYNC_HOURS` (default 24).
-- **After contests finish:** a successful catalog sync kicks sync for users with `user_contest_results` on contests whose coding end (`start + duration`) fell in the last `POST_CONTEST_SYNC_LOOKBACK_HOURS` (default 48) and who have not successfully synced since that end time (hourly cooldown).
+- **On login:** Better Auth `session.create.after` starts a sync when the hourly window (`USER_SYNC_INTERVAL_MINUTES`) is open and the user has a Codeforces handle. Disabled when `skipInitialSync` is set (tests).
+- **Hourly tick** (`runAutoUserSyncTick`, also once at boot): starts at most `AUTO_USER_SYNC_BATCH_LIMIT` (3) user syncs total.
+  - **Post-contest first:** users with `user_contest_results` on contests whose coding end (`start + duration`) fell in the last `POST_CONTEST_SYNC_LOOKBACK_HOURS` (default 48) and who have not successfully synced since that end. No extra cooldown beyond the eligibility query.
+  - **Daily active users:** remaining batch slots go to users with a non-expired `"session"` whose `updatedAt` is in the last `ACTIVE_USER_DAYS` (default 7) and whose last successful user sync is older than `DAILY_USER_SYNC_HOURS` (default 24). Session `updatedAt` is a Better Auth refresh touch, not every request.
+- Manual Sync still uses the hourly cooldown via `maybeStartUserSync`.
 
 - Hydration calls bare `contest.standings?contestId=<id>` (no `handles` / paging params — regular contests reject them; see [codeforces.md](./codeforces.md)). The response includes the full problem list and all participant rows; the app filters the current handle locally, imports standings-only problems, and stores only normalized per-user contest/problem results, then discards the payload.
 - Skips complete existing contest rows by comparing their problem-pill count with the known `problems` count for that contest. Standings-only problems imported by the first hydration therefore participate in later completeness checks. Cheap upsolve flags are still recomputed from `user.status`.

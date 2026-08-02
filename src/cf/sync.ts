@@ -1,5 +1,6 @@
 export {
   acceptedProblemsFromSubmissions,
+  AUTO_USER_SYNC_BATCH_LIMIT,
   estimateMissingProblemRatings,
   hydrateUserContestResult,
   kickContestSyncQueue,
@@ -7,6 +8,7 @@ export {
   refreshUserContestDetails,
   requeueFailedContestJobsForUser,
   refreshProblemMetadata,
+  runAutoUserSyncTick,
   runContestSyncQueue,
   syncCatalog,
   syncDueActiveUsers,
