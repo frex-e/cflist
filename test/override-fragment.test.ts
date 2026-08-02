@@ -133,6 +133,21 @@ test("manual solved HTMX response swaps the list instead of a bare table row", a
   });
 });
 
+test("problems page loads optimistic status script and disables the control while posting", async () => {
+  await withSeededApp(async (app, db) => {
+    const cookie = await signUp(app, db);
+    const response = await app.request("/problems", {
+      headers: { cookie },
+    });
+    const html = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.match(html, /src="\/public\/status\.js"/);
+    assert.match(html, /hx-disabled-elt="find button"/);
+    assert.match(html, /data-local-status="unsolved"/);
+  });
+});
+
 test("status control cycles unsolved to skipped to solved", async () => {
   await withSeededApp(async (app, db) => {
     const cookie = await signUp(app, db);
