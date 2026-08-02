@@ -34,9 +34,9 @@
     return "unsolved";
   };
 
-  const solvedFilterFromPage = () => {
-    const select = document.querySelector('form.filters select[name="solved"]');
-    if (select instanceof HTMLSelectElement && select.value) return select.value;
+  // Match override POST filter context (HX-Current-URL / location), not the
+  // filter form select — that can lag during debounce or history navigation.
+  const solvedFilterFromLocation = () => {
     try {
       return new URL(window.location.href).searchParams.get("solved") || "all";
     } catch {
@@ -93,17 +93,18 @@
 
   const snapshots = new WeakMap();
 
-  const captureSnapshot = (form, row, button, summary) => ({
+  const captureSnapshot = (row, button) => ({
     rowClass: row.className,
     rowHidden: row.hidden,
     buttonClass: button.className,
     buttonText: button.textContent,
     buttonTitle: button.getAttribute("title") ?? "",
     dataStatus: row.getAttribute("data-local-status"),
-    summaryText: summary?.textContent ?? null,
+    previousSummaryText: null,
+    writtenSummaryText: null,
   });
 
-  const restoreSnapshot = (row, button, summary, snapshot) => {
+  const restoreRowSnapshot = (row, button, snapshot) => {
     row.className = snapshot.rowClass;
     row.hidden = snapshot.rowHidden;
     if (snapshot.dataStatus) row.setAttribute("data-local-status", snapshot.dataStatus);
@@ -111,7 +112,6 @@
     button.className = snapshot.buttonClass;
     button.textContent = snapshot.buttonText;
     button.title = snapshot.buttonTitle;
-    if (summary && snapshot.summaryText !== null) summary.textContent = snapshot.summaryText;
   };
 
   const applyStatusView = (row, button, status) => {
@@ -142,25 +142,31 @@
     const posted = statusInput instanceof HTMLInputElement ? statusInput.value : "";
     const nextStatus = statusAfterOverride(posted);
     const currentStatus = readCurrentStatus(button);
-    const filter = solvedFilterFromPage();
+    const filter = solvedFilterFromLocation();
     const summary = document.querySelector("#problem-summary");
+    const snapshot = captureSnapshot(row, button);
 
-    snapshots.set(form, captureSnapshot(form, row, button, summary));
     applyStatusView(row, button, nextStatus);
 
     if (summary) {
-      const parsed = parseSummaryText(summary.textContent ?? "");
+      const previousSummaryText = summary.textContent ?? "";
+      const parsed = parseSummaryText(previousSummaryText);
       if (parsed) {
-        summary.textContent = formatSummaryCounts(
+        const writtenSummaryText = formatSummaryCounts(
           adjustSummaryCounts(parsed.counts, currentStatus, nextStatus, filter),
           parsed.cfHandle,
         );
+        summary.textContent = writtenSummaryText;
+        snapshot.previousSummaryText = previousSummaryText;
+        snapshot.writtenSummaryText = writtenSummaryText;
       }
     }
 
     if (!statusMatchesSolvedFilter(filter, nextStatus)) {
       row.hidden = true;
     }
+
+    snapshots.set(form, snapshot);
   });
 
   const revertOptimistic = (event) => {
@@ -171,10 +177,23 @@
 
     const row = form.closest("tr[data-problem-row]");
     const button = form.querySelector("button.status-button");
-    const summary = document.querySelector("#problem-summary");
     if (!(row instanceof HTMLTableRowElement) || !(button instanceof HTMLButtonElement)) return;
 
-    restoreSnapshot(row, button, summary, snapshot);
+    restoreRowSnapshot(row, button, snapshot);
+
+    // Only undo our summary write if nothing else replaced it (another toggle
+    // success or filter OOB). Restoring a stale absolute snapshot would clobber
+    // newer matched/solved/skipped/unsolved counts.
+    const summary = document.querySelector("#problem-summary");
+    if (
+      summary
+      && snapshot.writtenSummaryText !== null
+      && snapshot.previousSummaryText !== null
+      && summary.textContent === snapshot.writtenSummaryText
+    ) {
+      summary.textContent = snapshot.previousSummaryText;
+    }
+
     snapshots.delete(form);
   };
 
