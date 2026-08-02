@@ -17,6 +17,8 @@ npm start
 
 Dev server: `PORT=3001 npm start`
 
+CI (`.github/workflows/ci.yml`): on PRs and `main`, runs `npm ci` → `npm run build` → `npm test` on Node 24, then `docker build`. Deploy only from green CI.
+
 ## Documentation
 
 Detailed notes live in [`agents/`](./agents/README.md) by topic (Codeforces API, sync/data, UI, ops).

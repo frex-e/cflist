@@ -1,5 +1,14 @@
 # Operations and design
 
+## CI
+
+GitHub Actions workflow [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every pull request and every push to `main`:
+
+1. `npm ci` → `npm run build` (`tsc`) → `npm test` on Node 24
+2. After that passes, `docker build` verifies the production image still builds
+
+Treat a green CI run as the gate before deploying. Do not ship from a commit whose CI failed.
+
 ## Deployment
 
 - `HOST` defaults to `127.0.0.1`; Docker sets `HOST=0.0.0.0`.
