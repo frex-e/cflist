@@ -1,4 +1,10 @@
 export { acceptedProblemsFromSubmissions } from "../accepted-problems.js";
+export {
+  maybeStartUserSync,
+  syncDueActiveUsers,
+  syncUsersForRecentlyEndedContests,
+} from "./auto-user-sync.js";
+export type { SyncableUser } from "./auto-user-sync.js";
 export { refreshProblemMetadata, syncCatalog } from "./catalog.js";
 export { hydrateUserContestResult } from "./contest-hydration.js";
 export { kickContestSyncQueue, requeueFailedContestJobsForUser, runContestSyncQueue } from "./contest-queue.js";

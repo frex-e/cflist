@@ -43,6 +43,9 @@ export const config = {
   syncIntervalMinutes: intFromEnv("SYNC_INTERVAL_MINUTES", 360),
   syncUnratedIntervalMinutes: intFromEnv("SYNC_UNRATED_INTERVAL_MINUTES", 60),
   userSyncIntervalMinutes: intFromEnv("USER_SYNC_INTERVAL_MINUTES", 60),
+  activeUserDays: intFromEnv("ACTIVE_USER_DAYS", 7),
+  dailyUserSyncHours: intFromEnv("DAILY_USER_SYNC_HOURS", 24),
+  postContestSyncLookbackHours: intFromEnv("POST_CONTEST_SYNC_LOOKBACK_HOURS", 48),
   contestCacheTtlDays: intFromEnv("CONTEST_CACHE_TTL_DAYS", 14),
   contestCacheRecentCount: intFromEnv("CONTEST_CACHE_RECENT_COUNT", 10),
   authSecret:

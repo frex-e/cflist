@@ -13,6 +13,9 @@ export {
   getLatestUserSyncRun,
   hasSuccessfulUserSyncRun,
   getManualUserSyncCooldown,
+  getAuthUserRow,
+  listActiveUsersDueForDailySync,
+  listUsersNeedingPostContestSync,
   problemCount,
   latestSuccessfulSyncAgeMs,
   setSolvedOverride,
@@ -20,7 +23,12 @@ export {
   getDefaultFilterQuery,
   setDefaultFilterQuery,
 } from "./user.js";
-export type { LocalProblemStatus, ManualUserSyncCooldown } from "./user.js";
+export type {
+  AuthUserRow,
+  AutoSyncUser,
+  LocalProblemStatus,
+  ManualUserSyncCooldown,
+} from "./user.js";
 export {
   getContestSyncJobCounts,
   getContestSyncJobsByContest,

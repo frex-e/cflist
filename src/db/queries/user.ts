@@ -118,6 +118,126 @@ export const getManualUserSyncCooldown = (
   };
 };
 
+export type AuthUserRow = {
+  id: string;
+  name: string;
+  email: string;
+  cfHandle: string;
+};
+
+export const getAuthUserRow = (db: Db, userId: string): AuthUserRow | undefined => {
+  return db
+    .prepare(
+      `
+      SELECT id, name, email, cfHandle
+      FROM "user"
+      WHERE id = @userId
+    `,
+    )
+    .get({ userId }) as AuthUserRow | undefined;
+};
+
+export type AutoSyncUser = {
+  id: string;
+  cfHandle: string;
+};
+
+export const listActiveUsersDueForDailySync = (
+  db: Db,
+  options: {
+    activeWithinMs: number;
+    minSyncAgeMs: number;
+    nowMs?: number;
+  },
+): AutoSyncUser[] => {
+  const nowMs = options.nowMs ?? Date.now();
+  const activeCutoff = new Date(nowMs - options.activeWithinMs).toISOString();
+  const syncCutoff = new Date(nowMs - options.minSyncAgeMs).toISOString();
+
+  return db
+    .prepare(
+      `
+      SELECT u.id AS id, u.cfHandle AS cfHandle
+      FROM "user" u
+      WHERE TRIM(u.cfHandle) != ''
+        AND EXISTS (
+          SELECT 1
+          FROM "session" s
+          WHERE s.userId = u.id
+            AND s.updatedAt >= @activeCutoff
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM sync_runs r
+          WHERE r.user_id = u.id
+            AND r.source = 'codeforces:user'
+            AND r.status = 'success'
+            AND r.finished_at IS NOT NULL
+            AND r.finished_at >= @syncCutoff
+        )
+    `,
+    )
+    .all({ activeCutoff, syncCutoff }) as AutoSyncUser[];
+};
+
+export const listUsersNeedingPostContestSync = (
+  db: Db,
+  options: {
+    lookbackMs: number;
+    nowMs?: number;
+  },
+): AutoSyncUser[] => {
+  const nowMs = options.nowMs ?? Date.now();
+  const nowSeconds = Math.floor(nowMs / 1000);
+  const lookbackCutoffSeconds = Math.floor((nowMs - options.lookbackMs) / 1000);
+
+  const rows = db
+    .prepare(
+      `
+      SELECT
+        u.id AS id,
+        u.cfHandle AS cfHandle,
+        (c.start_time_seconds + c.duration_seconds) AS contestEndSeconds,
+        (
+          SELECT r.finished_at
+          FROM sync_runs r
+          WHERE r.user_id = u.id
+            AND r.source = 'codeforces:user'
+            AND r.status = 'success'
+            AND r.finished_at IS NOT NULL
+          ORDER BY r.id DESC
+          LIMIT 1
+        ) AS lastFinishedAt
+      FROM user_contest_results ucr
+      JOIN contests c ON c.id = ucr.contest_id
+      JOIN "user" u ON u.id = ucr.user_id
+      WHERE TRIM(u.cfHandle) != ''
+        AND c.start_time_seconds IS NOT NULL
+        AND c.duration_seconds IS NOT NULL
+        AND (c.start_time_seconds + c.duration_seconds) <= @nowSeconds
+        AND (c.start_time_seconds + c.duration_seconds) > @lookbackCutoffSeconds
+    `,
+    )
+    .all({ nowSeconds, lookbackCutoffSeconds }) as Array<{
+    id: string;
+    cfHandle: string;
+    contestEndSeconds: number;
+    lastFinishedAt: string | null;
+  }>;
+
+  const byUser = new Map<string, AutoSyncUser>();
+  for (const row of rows) {
+    if (byUser.has(row.id)) continue;
+    const lastFinishedAt = row.lastFinishedAt ? Date.parse(row.lastFinishedAt) : Number.NaN;
+    const contestEndMs = row.contestEndSeconds * 1000;
+    if (!Number.isFinite(lastFinishedAt) || lastFinishedAt < contestEndMs) {
+      byUser.set(row.id, { id: row.id, cfHandle: row.cfHandle });
+    }
+  }
+
+  return [...byUser.values()];
+};
+
 export const problemCount = (db: Db): number => {
   const row = db.prepare("SELECT COUNT(*) AS count FROM problems").get() as { count: number };
   return row.count;

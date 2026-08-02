@@ -133,6 +133,18 @@ const runCatalogSync = async (db: Db, client: CodeforcesClient): Promise<void> =
       `Synced ${contests.length} contests and ${problemset.problems.length} API problems.`,
       syncState.lastCatalogFinishedAt,
     );
+
+    // Dynamic import avoids a static cycle: catalog → auto-user-sync → user-status → catalog.
+    void import("./auto-user-sync.js")
+      .then(({ syncUsersForRecentlyEndedContests }) => {
+        const started = syncUsersForRecentlyEndedContests(db);
+        if (started > 0) {
+          console.log(`Started post-contest auto-sync for ${started} user(s)`);
+        }
+      })
+      .catch((error) => {
+        console.error("Post-contest user sync failed:", error);
+      });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     syncState.lastCatalogFinishedAt = now();

@@ -28,7 +28,7 @@ Detailed notes live in [`agents/`](./agents/README.md) by topic (Codeforces API,
 - `src/app.ts` — app factory, middleware, routes
 - `src/routes/` — auth, problems, contests
 - `src/db/queries/` — filters and SQL (barrel: `src/db/queries.ts`)
-- `src/cf/sync/` — Codeforces sync (barrel: `src/cf/sync.ts`)
+- `src/cf/sync/` — Codeforces sync (barrel: `src/cf/sync.ts`); auto user sync in `auto-user-sync.ts` (login, daily active users, post-contest)
 - `src/views/problems.tsx` — problem list (`src/views/problems/url.ts` for URLs)
 
 ## Rules of thumb
