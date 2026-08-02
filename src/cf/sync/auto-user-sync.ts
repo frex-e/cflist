@@ -27,7 +27,7 @@ export const maybeStartUserSync = (
   void syncUserStatus(db, user.id, cfHandle)
     .then(() => kickContestSyncQueue(db))
     .catch((error) => {
-      console.error(`Auto Codeforces sync failed for ${user.id}:`, error);
+      console.error("Codeforces sync failed:", error);
     });
 
   return true;
