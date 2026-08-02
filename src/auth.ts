@@ -22,6 +22,7 @@ export type AuthConfig = {
   githubClientId?: string;
   githubClientSecret?: string;
   githubOnly?: boolean;
+  onSessionCreated?: (userId: string) => void;
 };
 
 export const needsCfHandle = (user: AuthUser): boolean => !user.cfHandle?.trim();
@@ -86,6 +87,16 @@ export const createAuth = (db: Db, config: AuthConfig) => {
               cfHandle: user.cfHandle ?? "",
             },
           }),
+        },
+      },
+      session: {
+        create: {
+          after: async (session) => {
+            const userId = session.userId;
+            if (typeof userId === "string" && userId) {
+              config.onSessionCreated?.(userId);
+            }
+          },
         },
       },
     },

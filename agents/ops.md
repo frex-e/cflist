@@ -20,6 +20,7 @@ Treat a green CI run as the gate before deploying. Do not ship from a commit who
 - One Node process plus one persisted SQLite file. If multiple instances ever run, move contest queue draining to a separate command/cron or add a database lock.
 - `/healthz` returns `{ ok: true }` when the DB is reachable; use it as a liveness/readiness probe.
 - The process handles `SIGTERM`/`SIGINT`: stops background sync timers, closes the HTTP server, then closes the DB.
+- Background timers also run an hourly auto user-sync tick (post-contest then daily active users, batch-capped). See [sync-and-data.md](./sync-and-data.md). Optional env: `ACTIVE_USER_DAYS`, `DAILY_USER_SYNC_HOURS`, `POST_CONTEST_SYNC_LOOKBACK_HOURS`.
 - Request logs include mutations, failed reads, and reads taking at least one second. Routine successful `GET`/`HEAD`/`OPTIONS` traffic and health checks are suppressed; health-check failures have a dedicated error log.
 
 ## Backups

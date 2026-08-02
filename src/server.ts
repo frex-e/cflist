@@ -6,7 +6,12 @@ import { openDb } from "./db/connection.js";
 import { migrate } from "./db/migrate.js";
 import { shouldRefreshProblemMetadata, shouldSyncCatalog } from "./db/queries/catalog-sync.js";
 import { resetStaleUserSyncRuns } from "./db/writes/sync-runs.js";
-import { kickContestSyncQueue, refreshProblemMetadata, syncCatalog } from "./cf/sync.js";
+import {
+  kickContestSyncQueue,
+  refreshProblemMetadata,
+  runAutoUserSyncTick,
+  syncCatalog,
+} from "./cf/sync.js";
 
 validateProductionConfig();
 
@@ -40,14 +45,31 @@ const maybeSync = (): void => {
   });
 };
 
+const maybeAutoUserSync = (): void => {
+  try {
+    const { postContest, daily } = runAutoUserSyncTick(db);
+    if (postContest > 0) {
+      console.log(`Started post-contest auto-sync for ${postContest} user(s)`);
+    }
+    if (daily > 0) {
+      console.log(`Started daily auto-sync for ${daily} active user(s)`);
+    }
+  } catch (error) {
+    console.error("Auto user sync tick failed:", error);
+  }
+};
+
 maybeSync();
+maybeAutoUserSync();
 kickContestSyncQueue(db);
 
 const syncIntervalMs = Math.max(1, config.syncIntervalMinutes) * 60 * 1000;
 const unratedSyncIntervalMs = Math.max(1, config.syncUnratedIntervalMinutes) * 60 * 1000;
+const autoUserSyncIntervalMs = 60 * 60 * 1000;
 const backgroundIntervals = [
   setInterval(maybeSync, syncIntervalMs),
   setInterval(maybeSync, unratedSyncIntervalMs),
+  setInterval(maybeAutoUserSync, autoUserSyncIntervalMs),
   setInterval(() => kickContestSyncQueue(db), 60 * 1000),
   setInterval(() => resetStaleUserSyncRuns(db), 5 * 60 * 1000),
 ];

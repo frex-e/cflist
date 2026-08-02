@@ -2,9 +2,10 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { createAuth, emailAuthEnabled, githubAuthEnabled, needsCfHandle, type AuthSession, type AuthUser } from "./auth.js";
+import { config } from "./config.js";
 import type { Db } from "./db/connection.js";
-import { getDefaultFilterQuery, getLatestUserSyncRun } from "./db/queries.js";
-import { kickContestSyncQueue, syncState, syncUserStatus } from "./cf/sync.js";
+import { getAuthUserRow, getDefaultFilterQuery, getLatestUserSyncRun } from "./db/queries.js";
+import { kickContestSyncQueue, maybeStartUserSync, syncState, syncUserStatus } from "./cf/sync.js";
 import { layout, configureLayoutAuth } from "./views/layout.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerContestsRoutes } from "./routes/contests.js";
@@ -101,6 +102,8 @@ const errorPage = (user: AuthUser | null): string => {
 };
 
 export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVariables }> => {
+  const userSyncIntervalMs = Math.max(0, config.userSyncIntervalMinutes) * 60 * 1000;
+
   const authConfig = {
     baseURL: appConfig.authBaseURL,
     secret: appConfig.authSecret,
@@ -108,6 +111,13 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
     githubClientId: appConfig.githubClientId,
     githubClientSecret: appConfig.githubClientSecret,
     githubOnly: appConfig.authGitHubOnly,
+    onSessionCreated: appConfig.skipInitialSync
+      ? undefined
+      : (userId: string) => {
+          const user = getAuthUserRow(db, userId);
+          if (!user || needsCfHandle(user)) return;
+          maybeStartUserSync(db, user, userSyncIntervalMs);
+        },
   };
   const auth = createAuth(db, authConfig);
   const githubEnabled = githubAuthEnabled(authConfig);
@@ -283,7 +293,6 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
   registerSyncRoutes(app, {
     db,
     requireUser: requireCompleteUser,
-    runSyncInBackground,
   });
 
   registerAdminCatalogRoutes(app, { db });

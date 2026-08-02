@@ -118,6 +118,137 @@ export const getManualUserSyncCooldown = (
   };
 };
 
+export type AuthUserRow = {
+  id: string;
+  name: string;
+  email: string;
+  cfHandle: string;
+};
+
+export const getAuthUserRow = (db: Db, userId: string): AuthUserRow | undefined => {
+  return db
+    .prepare(
+      `
+      SELECT id, name, email, cfHandle
+      FROM "user"
+      WHERE id = @userId
+    `,
+    )
+    .get({ userId }) as AuthUserRow | undefined;
+};
+
+export type AutoSyncUser = {
+  id: string;
+  cfHandle: string;
+};
+
+export const listActiveUsersDueForDailySync = (
+  db: Db,
+  options: {
+    activeWithinMs: number;
+    minSyncAgeMs: number;
+    nowMs?: number;
+    limit?: number;
+  },
+): AutoSyncUser[] => {
+  const nowMs = options.nowMs ?? Date.now();
+  const activeCutoff = new Date(nowMs - options.activeWithinMs).toISOString();
+  const syncCutoff = new Date(nowMs - options.minSyncAgeMs).toISOString();
+  const nowIso = new Date(nowMs).toISOString();
+  const limit = Math.max(0, options.limit ?? Number.MAX_SAFE_INTEGER);
+
+  return db
+    .prepare(
+      `
+      SELECT u.id AS id, u.cfHandle AS cfHandle
+      FROM "user" u
+      WHERE TRIM(u.cfHandle) != ''
+        AND EXISTS (
+          SELECT 1
+          FROM "session" s
+          WHERE s.userId = u.id
+            AND s.updatedAt >= @activeCutoff
+            AND s.expiresAt > @nowIso
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM sync_runs r
+          WHERE r.user_id = u.id
+            AND r.source = 'codeforces:user'
+            AND r.status = 'success'
+            AND r.finished_at IS NOT NULL
+            AND r.finished_at >= @syncCutoff
+        )
+      ORDER BY (
+        SELECT MAX(r.finished_at)
+        FROM sync_runs r
+        WHERE r.user_id = u.id
+          AND r.source = 'codeforces:user'
+          AND r.status = 'success'
+          AND r.finished_at IS NOT NULL
+      ) ASC NULLS FIRST
+      LIMIT @limit
+    `,
+    )
+    .all({ activeCutoff, syncCutoff, nowIso, limit }) as AutoSyncUser[];
+};
+
+export const listUsersNeedingPostContestSync = (
+  db: Db,
+  options: {
+    lookbackMs: number;
+    nowMs?: number;
+    limit?: number;
+  },
+): AutoSyncUser[] => {
+  const nowMs = options.nowMs ?? Date.now();
+  const nowSeconds = Math.floor(nowMs / 1000);
+  const lookbackCutoffSeconds = Math.floor((nowMs - options.lookbackMs) / 1000);
+  const limit = Math.max(0, options.limit ?? Number.MAX_SAFE_INTEGER);
+
+  return db
+    .prepare(
+      `
+      SELECT u.id AS id, u.cfHandle AS cfHandle
+      FROM "user" u
+      WHERE TRIM(u.cfHandle) != ''
+        AND EXISTS (
+          SELECT 1
+          FROM user_contest_results ucr
+          JOIN contests c ON c.id = ucr.contest_id
+          WHERE ucr.user_id = u.id
+            AND c.start_time_seconds IS NOT NULL
+            AND c.duration_seconds IS NOT NULL
+            AND (c.start_time_seconds + c.duration_seconds) <= @nowSeconds
+            AND (c.start_time_seconds + c.duration_seconds) > @lookbackCutoffSeconds
+            AND COALESCE(
+              (
+                SELECT unixepoch(r.finished_at)
+                FROM sync_runs r
+                WHERE r.user_id = u.id
+                  AND r.source = 'codeforces:user'
+                  AND r.status = 'success'
+                  AND r.finished_at IS NOT NULL
+                ORDER BY r.id DESC
+                LIMIT 1
+              ),
+              0
+            ) < (c.start_time_seconds + c.duration_seconds)
+        )
+      ORDER BY (
+        SELECT MAX(r.finished_at)
+        FROM sync_runs r
+        WHERE r.user_id = u.id
+          AND r.source = 'codeforces:user'
+          AND r.status = 'success'
+          AND r.finished_at IS NOT NULL
+      ) ASC NULLS FIRST
+      LIMIT @limit
+    `,
+    )
+    .all({ nowSeconds, lookbackCutoffSeconds, limit }) as AutoSyncUser[];
+};
+
 export const problemCount = (db: Db): number => {
   const row = db.prepare("SELECT COUNT(*) AS count FROM problems").get() as { count: number };
   return row.count;
