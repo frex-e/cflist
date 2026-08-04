@@ -9,7 +9,8 @@ const SCHEMA_SQL = `
     image TEXT,
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL,
-    cfHandle TEXT NOT NULL
+    cfHandle TEXT NOT NULL,
+    lastLoginAt TEXT
   );
 
   CREATE TABLE IF NOT EXISTS "session" (
@@ -262,4 +263,6 @@ export const migrate = (db: Db): void => {
   ensureColumn(db, "problems", "estimated_rating", "estimated_rating INTEGER");
   ensureColumn(db, "problems", "estimated_rating_at", "estimated_rating_at TEXT");
   ensureColumn(db, "user_problem_overrides", "skipped", "skipped INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, '"user"', "lastLoginAt", "lastLoginAt TEXT");
+  db.exec(`CREATE INDEX IF NOT EXISTS user_lastLoginAt_idx ON "user"(lastLoginAt)`);
 };

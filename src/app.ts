@@ -4,7 +4,7 @@ import type { Context } from "hono";
 import { createAuth, emailAuthEnabled, githubAuthEnabled, needsCfHandle, type AuthSession, type AuthUser } from "./auth.js";
 import type { Db } from "./db/connection.js";
 import { getDefaultFilterQuery, getLatestUserSyncRun } from "./db/queries.js";
-import { kickContestSyncQueue, syncState, syncUserStatus } from "./cf/sync.js";
+import { startUserSyncInBackground } from "./cf/sync.js";
 import { layout, configureLayoutAuth } from "./views/layout.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerContestsRoutes } from "./routes/contests.js";
@@ -22,6 +22,7 @@ export type AppConfig = {
   githubClientSecret?: string;
   authGitHubOnly?: boolean;
   skipInitialSync?: boolean;
+  startUserSync?: (db: Db, user: AuthUser) => boolean;
 };
 
 type AppVariables = {
@@ -101,6 +102,8 @@ const errorPage = (user: AuthUser | null): string => {
 };
 
 export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVariables }> => {
+  const runSyncInBackground = (user: AuthUser): boolean =>
+    (appConfig.startUserSync ?? startUserSyncInBackground)(db, user);
   const authConfig = {
     baseURL: appConfig.authBaseURL,
     secret: appConfig.authSecret,
@@ -108,6 +111,20 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
     githubClientId: appConfig.githubClientId,
     githubClientSecret: appConfig.githubClientSecret,
     githubOnly: appConfig.authGitHubOnly,
+    onSessionCreated: (userId: string): void => {
+      const lastLoginAt = new Date().toISOString();
+      db.prepare(`UPDATE "user" SET lastLoginAt = @lastLoginAt WHERE id = @userId`).run({
+        lastLoginAt,
+        userId,
+      });
+
+      if (appConfig.skipInitialSync) return;
+      const user = db
+        .prepare(`SELECT id, name, email, cfHandle FROM "user" WHERE id = @userId`)
+        .get({ userId }) as AuthUser | undefined;
+      if (!user || needsCfHandle(user)) return;
+      runSyncInBackground(user);
+    },
   };
   const auth = createAuth(db, authConfig);
   const githubEnabled = githubAuthEnabled(authConfig);
@@ -215,18 +232,6 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
 
     const query = getDefaultFilterQuery(db, userId);
     return query ? new URLSearchParams(query) : undefined;
-  };
-
-  const runSyncInBackground = (user: AuthUser): boolean => {
-    if (syncState.userRunning.has(user.id)) return false;
-
-    void syncUserStatus(db, user.id, user.cfHandle)
-      .then(() => kickContestSyncQueue(db))
-      .catch((error) => {
-        console.error("Codeforces sync failed:", error);
-      });
-
-    return true;
   };
 
   const maybeStartInitialSync = (user: AuthUser): boolean => {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { createApp } from "../src/app.js";
+import { createApp, type AppConfig } from "../src/app.js";
 import { setVerifyHandleForTests } from "../src/cf/verify-handle.js";
 import { migrate } from "../src/db/migrate.js";
 
@@ -9,6 +9,8 @@ type AppOptions = {
   github?: boolean;
   githubOnly?: boolean;
   authBaseURL?: string;
+  skipInitialSync?: boolean;
+  startUserSync?: AppConfig["startUserSync"];
 };
 
 const withApp = async (
@@ -27,7 +29,8 @@ const withApp = async (
       authBaseURL: options.authBaseURL ?? "http://localhost",
       authSecret: "test-secret-with-enough-length-32",
       authTrustedOrigins: ["http://localhost"],
-      skipInitialSync: true,
+      skipInitialSync: options.skipInitialSync ?? true,
+      startUserSync: options.startUserSync,
       ...(options.github
         ? {
             githubClientId: "test-github-client-id",
@@ -79,6 +82,80 @@ const signUpWithoutCfHandle = async (app: ReturnType<typeof createApp>, db: Data
   db.prepare(`UPDATE "user" SET cfHandle = '' WHERE id = @userId`).run({ userId: user.id });
   return cookie;
 };
+
+test("successful authentication records login activity and starts one sync", async () => {
+  const syncStarts: string[] = [];
+  await withApp(async (app, db) => {
+    const cookie = await signUp(app, db);
+    assert.equal(syncStarts.length, 1, "sign-up creates an authenticated session");
+
+    const signOutResponse = await app.request("/sign-out", {
+      method: "POST",
+      headers: { cookie },
+    });
+    assert.equal(signOutResponse.status, 303);
+
+    const user = db.prepare(`SELECT id FROM "user" WHERE email = 'user@example.com'`).get() as { id: string };
+    db.prepare(`UPDATE "user" SET lastLoginAt = NULL WHERE id = @userId`).run({ userId: user.id });
+    syncStarts.length = 0;
+
+    const signInResponse = await app.request("/sign-in", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        email: "user@example.com",
+        password: "password123",
+      }).toString(),
+    });
+
+    assert.equal(signInResponse.status, 303);
+    assert.deepEqual(syncStarts, [user.id]);
+    const activity = db
+      .prepare(`SELECT lastLoginAt FROM "user" WHERE id = @userId`)
+      .get({ userId: user.id }) as { lastLoginAt: string | null };
+    assert.ok(activity.lastLoginAt);
+  }, {
+    skipInitialSync: false,
+    startUserSync: (_db, user) => {
+      syncStarts.push(user.id);
+      return true;
+    },
+  });
+});
+
+test("failed authentication does not record login activity or start a sync", async () => {
+  const syncStarts: string[] = [];
+  await withApp(async (app, db) => {
+    const cookie = await signUp(app, db);
+    await app.request("/sign-out", { method: "POST", headers: { cookie } });
+
+    const user = db.prepare(`SELECT id FROM "user" WHERE email = 'user@example.com'`).get() as { id: string };
+    db.prepare(`UPDATE "user" SET lastLoginAt = NULL WHERE id = @userId`).run({ userId: user.id });
+    syncStarts.length = 0;
+
+    const response = await app.request("/sign-in", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        email: "user@example.com",
+        password: "wrong-password",
+      }).toString(),
+    });
+
+    assert.equal(response.status, 303);
+    assert.deepEqual(syncStarts, []);
+    const activity = db
+      .prepare(`SELECT lastLoginAt FROM "user" WHERE id = @userId`)
+      .get({ userId: user.id }) as { lastLoginAt: string | null };
+    assert.equal(activity.lastLoginAt, null);
+  }, {
+    skipInitialSync: false,
+    startUserSync: (_db, user) => {
+      syncStarts.push(user.id);
+      return true;
+    },
+  });
+});
 
 test("sign out clears the session cookie and invalidates the session", async () => {
   await withApp(async (app, db) => {

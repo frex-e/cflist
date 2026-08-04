@@ -5,6 +5,7 @@ export {
   getLatestSyncRun,
   getLatestUserSyncRun,
   hasSuccessfulUserSyncRun,
+  listUsersDueForAutomaticSync,
   getManualUserSyncCooldown,
   getContestSyncJobCounts,
   getContestSyncJobsByContest,
@@ -36,4 +37,5 @@ export {
   type ProblemDetail,
   type ProblemFilters,
   type ProblemRow,
+  type UserDueForAutomaticSync,
 } from "./queries/index.js";

@@ -50,17 +50,60 @@ test("migrate bootstraps the current schema without migration history", () => {
       .prepare("PRAGMA table_info(user_contest_results)")
       .all()
       .map((row) => (row as { name: string }).name);
+    const userColumns = db
+      .prepare(`PRAGMA table_info("user")`)
+      .all()
+      .map((row) => (row as { name: string }).name);
 
     assert.ok(problemColumns.includes("canonical_id"));
     assert.ok(problemColumns.includes("estimated_rating"));
     assert.ok(problemColumns.includes("estimated_rating_at"));
     assert.ok(contestResultColumns.includes("standings_checked_at"));
+    assert.ok(userColumns.includes("lastLoginAt"));
 
     const overrideColumns = db
       .prepare("PRAGMA table_info(user_problem_overrides)")
       .all()
       .map((row) => (row as { name: string }).name);
     assert.ok(overrideColumns.includes("skipped"));
+  } finally {
+    db.close();
+  }
+});
+
+test("migrate adds lastLoginAt to an existing auth user table", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+
+  try {
+    db.exec(`
+      CREATE TABLE "user" (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL UNIQUE,
+        emailVerified INTEGER NOT NULL,
+        image TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        cfHandle TEXT NOT NULL
+      );
+    `);
+
+    migrate(db);
+    migrate(db);
+
+    const matchingColumns = db
+      .prepare(`PRAGMA table_info("user")`)
+      .all()
+      .map((row) => (row as { name: string }).name)
+      .filter((name) => name === "lastLoginAt");
+    assert.deepEqual(matchingColumns, ["lastLoginAt"]);
+
+    const indexes = db
+      .prepare(`PRAGMA index_list("user")`)
+      .all()
+      .map((row) => (row as { name: string }).name);
+    assert.ok(indexes.includes("user_lastLoginAt_idx"));
   } finally {
     db.close();
   }
