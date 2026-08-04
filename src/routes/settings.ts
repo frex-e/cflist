@@ -16,7 +16,7 @@ type SettingsRouteDeps = {
   db: Db;
   proxyAuthSignOut: (cookie: string | undefined) => Promise<Response>;
   redirectWithAuthCookies: (authResponse: Response, location: string) => Response;
-  runSyncInBackground: (user: AuthUser) => boolean;
+  runSyncInBackground: (user: Pick<AuthUser, "id" | "cfHandle">) => boolean;
 };
 
 const confirmHandleMatches = (typed: string | undefined, handle: string): boolean =>

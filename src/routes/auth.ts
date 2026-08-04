@@ -39,8 +39,8 @@ type AuthRouteDeps = {
   startGitHubSignIn: (returnTo: string) => Promise<Response>;
   authErrorRedirect: (response: Response, fallback: string) => Promise<Response>;
   redirectWithAuthCookies: (authResponse: Response, location: string) => Response;
-  maybeStartInitialSync: (user: AuthUser) => boolean;
-  runSyncInBackground: (user: AuthUser) => boolean;
+  maybeStartInitialSync: (user: Pick<AuthUser, "id" | "cfHandle">) => boolean;
+  runSyncInBackground: (user: Pick<AuthUser, "id" | "cfHandle">) => boolean;
 };
 
 const saveCfHandle = (

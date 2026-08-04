@@ -8,7 +8,6 @@ export {
   refreshUserContestDetails,
   requeueFailedContestJobsForUser,
   refreshProblemMetadata,
-  runUserSync,
   runContestSyncQueue,
   startUserSyncInBackground,
   syncActiveUsers,

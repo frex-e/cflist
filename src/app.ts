@@ -4,7 +4,7 @@ import type { Context } from "hono";
 import { createAuth, emailAuthEnabled, githubAuthEnabled, needsCfHandle, type AuthSession, type AuthUser } from "./auth.js";
 import type { Db } from "./db/connection.js";
 import { getDefaultFilterQuery, getLatestUserSyncRun } from "./db/queries.js";
-import { startUserSyncInBackground } from "./cf/sync.js";
+import { startUserSyncInBackground, type SyncableUser } from "./cf/sync.js";
 import { layout, configureLayoutAuth } from "./views/layout.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerContestsRoutes } from "./routes/contests.js";
@@ -22,7 +22,7 @@ export type AppConfig = {
   githubClientSecret?: string;
   authGitHubOnly?: boolean;
   skipInitialSync?: boolean;
-  startUserSync?: (db: Db, user: AuthUser) => boolean;
+  startUserSync?: (db: Db, user: SyncableUser) => boolean;
 };
 
 type AppVariables = {
@@ -102,7 +102,7 @@ const errorPage = (user: AuthUser | null): string => {
 };
 
 export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVariables }> => {
-  const runSyncInBackground = (user: AuthUser): boolean =>
+  const runSyncInBackground = (user: SyncableUser): boolean =>
     (appConfig.startUserSync ?? startUserSyncInBackground)(db, user);
   const authConfig = {
     baseURL: appConfig.authBaseURL,
@@ -112,17 +112,16 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
     githubClientSecret: appConfig.githubClientSecret,
     githubOnly: appConfig.authGitHubOnly,
     onSessionCreated: (userId: string): void => {
-      const lastLoginAt = new Date().toISOString();
       db.prepare(`UPDATE "user" SET lastLoginAt = @lastLoginAt WHERE id = @userId`).run({
-        lastLoginAt,
+        lastLoginAt: new Date().toISOString(),
         userId,
       });
 
       if (appConfig.skipInitialSync) return;
       const user = db
-        .prepare(`SELECT id, name, email, cfHandle FROM "user" WHERE id = @userId`)
-        .get({ userId }) as AuthUser | undefined;
-      if (!user || needsCfHandle(user)) return;
+        .prepare(`SELECT id, cfHandle FROM "user" WHERE id = @userId`)
+        .get({ userId }) as SyncableUser | undefined;
+      if (!user?.cfHandle?.trim()) return;
       runSyncInBackground(user);
     },
   };
@@ -234,7 +233,7 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
     return query ? new URLSearchParams(query) : undefined;
   };
 
-  const maybeStartInitialSync = (user: AuthUser): boolean => {
+  const maybeStartInitialSync = (user: SyncableUser): boolean => {
     if (appConfig.skipInitialSync) return false;
     if (getLatestUserSyncRun(db, user.id)) return false;
     return runSyncInBackground(user);

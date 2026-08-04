@@ -76,16 +76,11 @@ export const hasSuccessfulUserSyncRun = (db: Db, userId: string): boolean => {
   return Boolean(row);
 };
 
-export type UserDueForAutomaticSync = {
-  id: string;
-  cfHandle: string;
-};
-
 export const listUsersDueForAutomaticSync = (
   db: Db,
   activeSince: string,
   syncBefore: string,
-): UserDueForAutomaticSync[] =>
+): Array<{ id: string; cfHandle: string }> =>
   db
     .prepare(
       `
@@ -105,7 +100,7 @@ export const listUsersDueForAutomaticSync = (
       ORDER BY lastLoginAt ASC, id ASC
     `,
     )
-    .all({ activeSince, syncBefore }) as UserDueForAutomaticSync[];
+    .all({ activeSince, syncBefore }) as Array<{ id: string; cfHandle: string }>;
 
 export type ManualUserSyncCooldown =
   | { allowed: true }

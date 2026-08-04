@@ -21,7 +21,7 @@ export {
   getDefaultFilterQuery,
   setDefaultFilterQuery,
 } from "./user.js";
-export type { LocalProblemStatus, ManualUserSyncCooldown, UserDueForAutomaticSync } from "./user.js";
+export type { LocalProblemStatus, ManualUserSyncCooldown } from "./user.js";
 export {
   getContestSyncJobCounts,
   getContestSyncJobsByContest,
