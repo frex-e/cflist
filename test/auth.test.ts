@@ -83,11 +83,11 @@ const signUpWithoutCfHandle = async (app: ReturnType<typeof createApp>, db: Data
   return cookie;
 };
 
-test("successful authentication records login activity and starts one sync", async () => {
+test("successful authentication records login activity without starting a sync", async () => {
   const syncStarts: string[] = [];
   await withApp(async (app, db) => {
     const cookie = await signUp(app, db);
-    assert.equal(syncStarts.length, 1, "sign-up creates an authenticated session");
+    assert.equal(syncStarts.length, 0, "sign-up does not start a user sync");
 
     const signOutResponse = await app.request("/sign-out", {
       method: "POST",
@@ -109,7 +109,7 @@ test("successful authentication records login activity and starts one sync", asy
     });
 
     assert.equal(signInResponse.status, 303);
-    assert.deepEqual(syncStarts, [user.id]);
+    assert.deepEqual(syncStarts, []);
     const activity = db
       .prepare(`SELECT lastLoginAt FROM "user" WHERE id = @userId`)
       .get({ userId: user.id }) as { lastLoginAt: string | null };
