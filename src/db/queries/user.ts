@@ -76,6 +76,32 @@ export const hasSuccessfulUserSyncRun = (db: Db, userId: string): boolean => {
   return Boolean(row);
 };
 
+export const listUsersDueForAutomaticSync = (
+  db: Db,
+  activeSince: string,
+  syncBefore: string,
+): Array<{ id: string; cfHandle: string }> =>
+  db
+    .prepare(
+      `
+      SELECT id, cfHandle
+      FROM "user"
+      WHERE lastLoginAt >= @activeSince
+        AND TRIM(cfHandle) <> ''
+        AND NOT EXISTS (
+          SELECT 1
+          FROM sync_runs
+          WHERE source = 'codeforces:user'
+            AND user_id = "user".id
+            AND status = 'success'
+            AND finished_at IS NOT NULL
+            AND finished_at > @syncBefore
+        )
+      ORDER BY lastLoginAt ASC, id ASC
+    `,
+    )
+    .all({ activeSince, syncBefore }) as Array<{ id: string; cfHandle: string }>;
+
 export type ManualUserSyncCooldown =
   | { allowed: true }
   | { allowed: false; retryAfterMs: number; lastFinishedAt: string };

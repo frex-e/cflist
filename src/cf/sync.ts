@@ -1,5 +1,7 @@
 export {
+  ACTIVE_USER_WINDOW_MS,
   acceptedProblemsFromSubmissions,
+  AUTOMATIC_USER_SYNC_INTERVAL_MS,
   estimateMissingProblemRatings,
   hydrateUserContestResult,
   kickContestSyncQueue,
@@ -7,8 +9,11 @@ export {
   requeueFailedContestJobsForUser,
   refreshProblemMetadata,
   runContestSyncQueue,
+  startUserSyncInBackground,
+  syncActiveUsers,
   syncCatalog,
   syncState,
   syncUserStatus,
+  type SyncableUser,
   type SyncState,
 } from "./sync/index.js";

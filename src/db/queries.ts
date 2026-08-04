@@ -5,6 +5,7 @@ export {
   getLatestSyncRun,
   getLatestUserSyncRun,
   hasSuccessfulUserSyncRun,
+  listUsersDueForAutomaticSync,
   getManualUserSyncCooldown,
   getContestSyncJobCounts,
   getContestSyncJobsByContest,

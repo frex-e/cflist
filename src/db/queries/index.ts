@@ -12,6 +12,7 @@ export {
   getLatestSyncRun,
   getLatestUserSyncRun,
   hasSuccessfulUserSyncRun,
+  listUsersDueForAutomaticSync,
   getManualUserSyncCooldown,
   problemCount,
   latestSuccessfulSyncAgeMs,

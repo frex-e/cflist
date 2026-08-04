@@ -19,7 +19,7 @@ type AppContext = Context<{ Variables: AppVariables }>;
 type SyncRouteDeps = {
   db: Db;
   requireUser: (c: AppContext) => AuthUser | Response;
-  runSyncInBackground: (user: AuthUser) => boolean;
+  runSyncInBackground: (user: Pick<AuthUser, "id" | "cfHandle">) => boolean;
 };
 
 const refreshPageFrom = (value: string | undefined): "problems" | "contests" => {
