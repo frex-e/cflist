@@ -57,7 +57,7 @@ const insertUserSyncRun = (
   db: DatabaseSync,
   userId: string,
   finishedAt: string,
-  status: "success" | "error" = "success",
+  status: "success" | "failed" = "success",
 ): void => {
   db.prepare(
     `
@@ -119,7 +119,7 @@ test("Problems page retries after a failed sync even inside the interval", async
     async (app, db) => {
       const cookie = await signUp(app);
       const user = db.prepare(`SELECT id FROM "user" WHERE email = 'user@example.com'`).get() as { id: string };
-      insertUserSyncRun(db, user.id, new Date().toISOString(), "error");
+      insertUserSyncRun(db, user.id, new Date().toISOString(), "failed");
 
       const response = await app.request("/problems", { headers: { cookie } });
       assert.equal(response.status, 200);
