@@ -33,7 +33,7 @@ type ProblemsRouteDeps = {
   db: Db;
   requireUser: (c: AppContext) => AuthUser | Response;
   defaultFilterParams: (userId: string, requestUrl: string) => URLSearchParams | undefined;
-  maybeStartInitialSync: (user: AuthUser) => boolean;
+  maybeStartPageSync: (user: AuthUser) => boolean;
 };
 
 const syncNoticeFrom = (requestUrl: string): string | undefined => {
@@ -45,7 +45,7 @@ export const registerProblemsRoutes = (
   app: Hono<{ Variables: AppVariables }>,
   deps: ProblemsRouteDeps,
 ): void => {
-  const { db, requireUser, defaultFilterParams, maybeStartInitialSync } = deps;
+  const { db, requireUser, defaultFilterParams, maybeStartPageSync } = deps;
 
   const problemListOptionsFor = (
     user: AuthUser,
@@ -78,7 +78,7 @@ export const registerProblemsRoutes = (
   app.get("/problems", (c) => {
     const user = requireUser(c);
     if (user instanceof Response) return user;
-    const autoSyncStarted = maybeStartInitialSync(user);
+    const autoSyncStarted = maybeStartPageSync(user);
     return c.html(problemsPage(problemListOptionsFor(user, c.req.url, defaultFilterParams(user.id, c.req.url), autoSyncStarted)));
   });
 

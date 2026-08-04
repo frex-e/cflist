@@ -3,7 +3,8 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { createAuth, emailAuthEnabled, githubAuthEnabled, needsCfHandle, type AuthSession, type AuthUser } from "./auth.js";
 import type { Db } from "./db/connection.js";
-import { getDefaultFilterQuery, getLatestUserSyncRun } from "./db/queries.js";
+import { config } from "./config.js";
+import { getDefaultFilterQuery, getManualUserSyncCooldown } from "./db/queries.js";
 import { startUserSyncInBackground, type SyncableUser } from "./cf/sync.js";
 import { layout, configureLayoutAuth } from "./views/layout.js";
 import { registerAuthRoutes } from "./routes/auth.js";
@@ -21,8 +22,11 @@ export type AppConfig = {
   githubClientId?: string;
   githubClientSecret?: string;
   authGitHubOnly?: boolean;
+  /** Skip automatic user sync on Problems/Contests page loads (tests). */
   skipInitialSync?: boolean;
   startUserSync?: (db: Db, user: SyncableUser) => boolean;
+  /** Override `USER_SYNC_INTERVAL_MINUTES` for page-open freshness (tests). */
+  userSyncIntervalMinutes?: number;
 };
 
 type AppVariables = {
@@ -116,13 +120,6 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
         lastLoginAt: new Date().toISOString(),
         userId,
       });
-
-      if (appConfig.skipInitialSync) return;
-      const user = db
-        .prepare(`SELECT id, cfHandle FROM "user" WHERE id = @userId`)
-        .get({ userId }) as SyncableUser | undefined;
-      if (!user?.cfHandle?.trim()) return;
-      runSyncInBackground(user);
     },
   };
   const auth = createAuth(db, authConfig);
@@ -233,9 +230,15 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
     return query ? new URLSearchParams(query) : undefined;
   };
 
-  const maybeStartInitialSync = (user: SyncableUser): boolean => {
+  const maybeStartPageSync = (user: SyncableUser): boolean => {
     if (appConfig.skipInitialSync) return false;
-    if (getLatestUserSyncRun(db, user.id)) return false;
+    if (!user.cfHandle?.trim()) return false;
+
+    const intervalMinutes = appConfig.userSyncIntervalMinutes ?? config.userSyncIntervalMinutes;
+    const intervalMs = Math.max(0, intervalMinutes) * 60 * 1000;
+    const cooldown = getManualUserSyncCooldown(db, user.id, intervalMs);
+    if (!cooldown.allowed) return false;
+
     return runSyncInBackground(user);
   };
 
@@ -260,7 +263,7 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
     startGitHubSignIn,
     authErrorRedirect,
     redirectWithAuthCookies,
-    maybeStartInitialSync,
+    maybeStartPageSync,
     runSyncInBackground,
   });
 
@@ -268,13 +271,13 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
     db,
     requireUser: requireCompleteUser,
     defaultFilterParams,
-    maybeStartInitialSync,
+    maybeStartPageSync,
   });
 
   registerContestsRoutes(app, {
     db,
     requireUser: requireCompleteUser,
-    maybeStartInitialSync,
+    maybeStartPageSync,
   });
 
   registerSettingsRoutes(app, {

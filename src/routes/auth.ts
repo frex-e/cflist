@@ -39,7 +39,7 @@ type AuthRouteDeps = {
   startGitHubSignIn: (returnTo: string) => Promise<Response>;
   authErrorRedirect: (response: Response, fallback: string) => Promise<Response>;
   redirectWithAuthCookies: (authResponse: Response, location: string) => Response;
-  maybeStartInitialSync: (user: Pick<AuthUser, "id" | "cfHandle">) => boolean;
+  maybeStartPageSync: (user: Pick<AuthUser, "id" | "cfHandle">) => boolean;
   runSyncInBackground: (user: Pick<AuthUser, "id" | "cfHandle">) => boolean;
 };
 
@@ -177,7 +177,7 @@ export const registerAuthRoutes = (
     }
 
     saveCfHandle(deps.db, user.id, handleResult);
-    deps.maybeStartInitialSync({ ...user, cfHandle: handleResult });
+    deps.maybeStartPageSync({ ...user, cfHandle: handleResult });
     return c.redirect(returnTo);
   });
 

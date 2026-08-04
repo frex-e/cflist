@@ -25,7 +25,7 @@ type AppContext = Context<{ Variables: AppVariables }>;
 type ContestsRouteDeps = {
   db: Db;
   requireUser: (c: AppContext) => AuthUser | Response;
-  maybeStartInitialSync: (user: AuthUser) => boolean;
+  maybeStartPageSync: (user: AuthUser) => boolean;
 };
 
 const MAX_CONTEST_JOB_ATTEMPTS = 3;
@@ -86,12 +86,12 @@ export const registerContestsRoutes = (
   app: Hono<{ Variables: AppVariables }>,
   deps: ContestsRouteDeps,
 ): void => {
-  const { db, requireUser, maybeStartInitialSync } = deps;
+  const { db, requireUser, maybeStartPageSync } = deps;
 
   app.get("/contests", (c) => {
     const user = requireUser(c);
     if (user instanceof Response) return user;
-    const autoSyncStarted = maybeStartInitialSync(user);
+    const autoSyncStarted = maybeStartPageSync(user);
 
     const searchParams = new URL(c.req.url).searchParams;
     return c.html(contestsPage(contestsOptionsFor(db, user, searchParams, { autoSyncStarted, includeCharts: true })));
