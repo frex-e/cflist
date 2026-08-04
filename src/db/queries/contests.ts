@@ -35,6 +35,23 @@ const catalogListableContestClause = `
   ${catalogProblemsetContestClause}
 `;
 
+const manualUpsolveExistsClause = `
+  EXISTS (
+    SELECT 1
+    FROM problems p
+    JOIN user_problem_overrides upo
+      ON upo.user_id = ucr.user_id
+      AND upo.canonical_id = p.canonical_id
+      AND upo.solved_override = 1
+    LEFT JOIN user_contest_problem_results ucpr
+      ON ucpr.user_id = ucr.user_id
+      AND ucpr.contest_id = p.contest_id
+      AND ucpr.problem_index = p.problem_index
+    WHERE p.contest_id = ucr.contest_id
+      AND COALESCE(ucpr.solved_in_contest, 0) = 0
+  )
+`;
+
 export const buildContestShowWhere = (show: ContestShowMode): { clause: string; params: Record<string, never> } => {
   if (show === "upsolved") {
     return {
@@ -48,6 +65,7 @@ export const buildContestShowWhere = (show: ContestShowMode): { clause: string; 
               AND ucpr.contest_id = ucr.contest_id
               AND ucpr.upsolved = 1
           )
+          OR ${manualUpsolveExistsClause}
         )`.trim(),
       params: {},
     };
@@ -101,7 +119,12 @@ const userProblemsJsonSubquery = `
       'rating', p.rating,
       'estimated_rating', p.estimated_rating,
       'solved_in_contest', ucpr.solved_in_contest,
-      'upsolved', ucpr.upsolved,
+      'upsolved', CASE
+        WHEN ucpr.upsolved = 1
+          OR (upo.solved_override = 1 AND ucpr.solved_in_contest = 0)
+        THEN 1
+        ELSE 0
+      END,
       'skipped', COALESCE(upo.skipped, 0),
       'points', ucpr.points,
       'rejected_attempt_count', ucpr.rejected_attempt_count,
@@ -130,7 +153,7 @@ const catalogProblemsJsonSubquery = `
       'rating', p.rating,
       'estimated_rating', p.estimated_rating,
       'solved_in_contest', 0,
-      'upsolved', 0,
+      'upsolved', CASE WHEN upo.solved_override = 1 THEN 1 ELSE 0 END,
       'skipped', COALESCE(upo.skipped, 0),
       'points', NULL,
       'rejected_attempt_count', NULL,

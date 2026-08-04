@@ -298,6 +298,82 @@ test("contests page shows yellow skipped pills without overriding CF solved stat
   });
 });
 
+test("contests page shows manual solved overrides as upsolved pills", async () => {
+  await withApp(async (app, db) => {
+    const cookie = await signUp(app, db);
+    const user = db.prepare(`SELECT id FROM "user" WHERE email = 'user@example.com'`).get() as { id: string };
+
+    db.prepare(
+      `
+      INSERT INTO user_contest_results (
+        user_id,
+        contest_id,
+        rank,
+        points,
+        penalty,
+        participant_type,
+        old_rating,
+        new_rating,
+        rating_delta,
+        performance,
+        last_checked_at
+      ) VALUES (@userId, 1100, 42, 3, 180, 'CONTESTANT', 1900, 1950, 50, 2075, '2026-01-01T00:00:00.000Z')
+    `,
+    ).run({ userId: user.id });
+
+    for (const row of [
+      { index: "A", solved: 1, upsolved: 0 },
+      { index: "B", solved: 0, upsolved: 0 },
+      { index: "C", solved: 0, upsolved: 0 },
+    ]) {
+      db.prepare(
+        `
+        INSERT INTO user_contest_problem_results (
+          user_id,
+          contest_id,
+          problem_index,
+          solved_in_contest,
+          upsolved
+        ) VALUES (@userId, 1100, @index, @solved, @upsolved)
+      `,
+      ).run({ userId: user.id, index: row.index, solved: row.solved, upsolved: row.upsolved });
+    }
+
+    const problemC = db
+      .prepare(
+        `
+        SELECT canonical_id AS canonicalId
+        FROM problems
+        WHERE contest_id = 1100 AND problem_index = 'C'
+      `,
+      )
+      .get() as { canonicalId: string };
+    db.prepare(
+      `
+      INSERT INTO user_problem_overrides (
+        user_id,
+        canonical_id,
+        solved_override,
+        skipped,
+        note,
+        updated_at
+      ) VALUES (@userId, @canonicalId, 1, 0, NULL, '2026-01-01T00:00:00.000Z')
+    `,
+    ).run({ userId: user.id, canonicalId: problemC.canonicalId });
+
+    const response = await app.request("/contests", { headers: { cookie } });
+    const html = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.match(html, /contest-problem-pill contest-solved/);
+    assert.match(html, /contest-problem-pill upsolved/);
+    assert.match(html, /contest-problem-pill unsolved/);
+    assert.match(html, /title="A — Problem A \(800\): solved in contest"/);
+    assert.match(html, /title="B — Problem B \(1200\): unsolved"/);
+    assert.match(html, /title="C — Problem C \(1600\): upsolved after contest"/);
+  });
+});
+
 test("contests page show filter keeps mutually exclusive table modes", async () => {
   await withApp(async (app, db) => {
     const cookie = await signUp(app, db);
