@@ -157,6 +157,40 @@ test("failed authentication does not record login activity or start a sync", asy
   });
 });
 
+test("authentication records incomplete profiles as active without starting a sync", async () => {
+  const syncStarts: string[] = [];
+  await withApp(async (app, db) => {
+    const cookie = await signUp(app, db);
+    await app.request("/sign-out", { method: "POST", headers: { cookie } });
+
+    const user = db.prepare(`SELECT id FROM "user" WHERE email = 'user@example.com'`).get() as { id: string };
+    db.prepare(`UPDATE "user" SET cfHandle = '', lastLoginAt = NULL WHERE id = @userId`).run({ userId: user.id });
+    syncStarts.length = 0;
+
+    const response = await app.request("/sign-in", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        email: "user@example.com",
+        password: "password123",
+      }).toString(),
+    });
+
+    assert.equal(response.status, 303);
+    assert.deepEqual(syncStarts, []);
+    const activity = db
+      .prepare(`SELECT lastLoginAt FROM "user" WHERE id = @userId`)
+      .get({ userId: user.id }) as { lastLoginAt: string | null };
+    assert.ok(activity.lastLoginAt);
+  }, {
+    skipInitialSync: false,
+    startUserSync: (_db, user) => {
+      syncStarts.push(user.id);
+      return true;
+    },
+  });
+});
+
 test("sign out clears the session cookie and invalidates the session", async () => {
   await withApp(async (app, db) => {
     const cookie = await signUp(app, db);
