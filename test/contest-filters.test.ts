@@ -69,6 +69,7 @@ test("contestTableFilterQuery omits defaults and serializes active filters", () 
 test("buildContestShowWhere maps show modes to SQL clauses", () => {
   assert.equal(buildContestShowWhere("all").clause, "");
   assert.match(buildContestShowWhere("upsolved").clause, /upsolved = 1/);
+  assert.match(buildContestShowWhere("upsolved").clause, /solved_override = 1/);
   assert.match(buildContestShowWhere("upsolved").clause, /rank IS NULL/);
   assert.match(buildContestShowWhere("participated").clause, /rank IS NULL/);
   assert.match(buildContestShowWhere("rated").clause, /new_rating IS NOT NULL/);
@@ -421,6 +422,115 @@ test("listUserContestResults all mode sorts catalog problem pills by index", () 
       rows[0]?.problems.map((problem) => problem.problem_index),
       ["A", "B", "C", "D", "E", "F", "I1", "I2"],
     );
+  } finally {
+    db.close();
+  }
+});
+
+test("listUserContestResults treats manual solved overrides as upsolved pills", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+
+  const userId = "user-manual-upsolve";
+  const catalogCanonicalId = randomUUID();
+  const hydratedCanonicalId = randomUUID();
+
+  db.prepare(
+    `
+    INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt, cfHandle)
+    VALUES (@userId, 'Test User', 'user@example.com', 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'inj')
+  `,
+  ).run({ userId });
+
+  db.prepare(
+    `
+    INSERT INTO contests (id, name, start_time_seconds, raw_json, updated_at)
+    VALUES
+      (701, 'Hydrated Round', 2000, '{}', '2026-01-01T00:00:00.000Z'),
+      (702, 'Catalog Only Round', 1000, '{}', '2026-01-01T00:00:00.000Z'),
+      (703, 'Manual Upsolve Only', 500, '{}', '2026-01-01T00:00:00.000Z')
+  `,
+  ).run();
+
+  db.prepare(
+    `
+    INSERT INTO problems (
+      contest_id, problem_index, name, tags_json, url, raw_json, updated_at, canonical_id
+    ) VALUES
+      (701, 'A', 'A', '[]', 'https://codeforces.com/contest/701/problem/A', '{}', '2026-01-01T00:00:00.000Z', @hydratedCanonicalId),
+      (701, 'B', 'B', '[]', 'https://codeforces.com/contest/701/problem/B', '{}', '2026-01-01T00:00:00.000Z', @hydratedB),
+      (702, 'A', 'A', '[]', 'https://codeforces.com/contest/702/problem/A', '{}', '2026-01-01T00:00:00.000Z', @catalogCanonicalId),
+      (703, 'A', 'A', '[]', 'https://codeforces.com/contest/703/problem/A', '{}', '2026-01-01T00:00:00.000Z', @manualOnly)
+  `,
+  ).run({
+    hydratedCanonicalId,
+    hydratedB: randomUUID(),
+    catalogCanonicalId,
+    manualOnly: randomUUID(),
+  });
+
+  db.prepare(
+    `
+    INSERT INTO user_contest_results (user_id, contest_id, rank, points, last_checked_at)
+    VALUES (@userId, 701, 10, 1, '2026-01-01T00:00:00.000Z')
+  `,
+  ).run({ userId });
+
+  db.prepare(
+    `
+    INSERT INTO user_contest_results (user_id, contest_id, last_checked_at)
+    VALUES (@userId, 703, '2026-01-01T00:00:00.000Z')
+  `,
+  ).run({ userId });
+
+  db.prepare(
+    `
+    INSERT INTO user_contest_problem_results (
+      user_id, contest_id, problem_index, solved_in_contest, upsolved
+    ) VALUES
+      (@userId, 701, 'A', 1, 0),
+      (@userId, 701, 'B', 0, 0),
+      (@userId, 703, 'A', 0, 0)
+  `,
+  ).run({ userId });
+
+  const problemB = db
+    .prepare(`SELECT canonical_id AS canonicalId FROM problems WHERE contest_id = 701 AND problem_index = 'B'`)
+    .get() as { canonicalId: string };
+  const problemManual = db
+    .prepare(`SELECT canonical_id AS canonicalId FROM problems WHERE contest_id = 703 AND problem_index = 'A'`)
+    .get() as { canonicalId: string };
+
+  for (const canonicalId of [problemB.canonicalId, catalogCanonicalId, problemManual.canonicalId]) {
+    db.prepare(
+      `
+      INSERT INTO user_problem_overrides (
+        user_id, canonical_id, solved_override, skipped, note, updated_at
+      ) VALUES (@userId, @canonicalId, 1, 0, NULL, '2026-01-01T00:00:00.000Z')
+    `,
+    ).run({ userId, canonicalId });
+  }
+
+  try {
+    const all = listUserContestResults(db, userId, { show: "all" });
+    const hydrated = all.rows.find((row) => row.contest_id === 701);
+    const catalogOnly = all.rows.find((row) => row.contest_id === 702);
+    assert.ok(hydrated);
+    assert.ok(catalogOnly);
+    assert.equal(hydrated.problems.find((problem) => problem.problem_index === "A")?.upsolved, 0);
+    assert.equal(hydrated.problems.find((problem) => problem.problem_index === "A")?.solved_in_contest, 1);
+    assert.equal(hydrated.problems.find((problem) => problem.problem_index === "B")?.upsolved, 1);
+    assert.equal(catalogOnly.problems[0]?.upsolved, 1);
+
+    const upsolved = listUserContestResults(db, userId, { show: "upsolved" });
+    assert.deepEqual(
+      upsolved.rows.map((row) => row.contest_id).sort((left, right) => left - right),
+      [701, 703],
+    );
+    const manualOnly = upsolved.rows.find((row) => row.contest_id === 703);
+    assert.ok(manualOnly);
+    assert.equal(manualOnly.problems[0]?.upsolved, 1);
   } finally {
     db.close();
   }

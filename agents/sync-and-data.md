@@ -17,6 +17,7 @@ Codeforces accepted submission status OR local solved override
 - Manual overrides are additive; they do not represent local "unsolved" force-state.
 - Overrides are keyed by `(user_id, canonical_id)` — one toggle applies to all contest placements of the same task (`solved_override` and `skipped` columns).
 - Contest pills show skipped as yellow when the problem is neither solved in-contest nor upsolved; mark/unmark skipped only from the problems list.
+- Contest pills treat a local `solved_override` as upsolved when the problem was not solved in-contest (same teal fill as CF upsolves). Overrides are read at list time; they are not written into `user_contest_problem_results`.
 
 ## Canonical problem identity
 
