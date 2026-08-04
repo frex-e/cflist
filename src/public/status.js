@@ -3,19 +3,19 @@
     unsolved: {
       buttonClass: "status status-button unsolved",
       glyph: "",
-      title: "Mark skipped",
+      title: "Mark solved",
       rowClass: "problem-row",
     },
     skipped: {
       buttonClass: "status status-button skipped",
       glyph: "–",
-      title: "Mark solved",
+      title: "Clear status (unsolved)",
       rowClass: "problem-row skipped-row",
     },
     solved: {
       buttonClass: "status status-button solved manual-solved",
       glyph: "✓",
-      title: "Clear status (unsolved)",
+      title: "Mark skipped",
       rowClass: "problem-row solved-row",
     },
   };

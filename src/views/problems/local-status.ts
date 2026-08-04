@@ -11,7 +11,7 @@ export const readLocalStatusView = (input: {
 
 /** Hidden form value posted to advance from the current local status. */
 export const nextLocalStatusValue = (current: LocalStatusView): "" | "skipped" | "solved" => {
-  if (current === "solved") return "";
-  if (current === "skipped") return "solved";
-  return "skipped";
+  if (current === "skipped") return "";
+  if (current === "solved") return "skipped";
+  return "solved";
 };
