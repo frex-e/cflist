@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { nextLocalStatusValue, readLocalStatusView } from "../src/views/problems/local-status.js";
 
-test("local status cycles unsolved → skipped → solved → unsolved", () => {
-  assert.equal(nextLocalStatusValue("unsolved"), "skipped");
-  assert.equal(nextLocalStatusValue("skipped"), "solved");
-  assert.equal(nextLocalStatusValue("solved"), "");
+test("local status cycles unsolved → solved → skipped → unsolved", () => {
+  assert.equal(nextLocalStatusValue("unsolved"), "solved");
+  assert.equal(nextLocalStatusValue("solved"), "skipped");
+  assert.equal(nextLocalStatusValue("skipped"), "");
 });
 
 test("readLocalStatusView prefers manual solved over skipped", () => {

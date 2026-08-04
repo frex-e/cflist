@@ -11,7 +11,7 @@ Codeforces accepted submission status OR local solved override
 ```
 
 - A local override may mark an unsolved problem as solved or skipped.
-- Local status cycles on the problems list: unsolved → skipped → solved → unsolved.
+- Local status cycles on the problems list: unsolved → solved → skipped → unsolved.
 - Skipped and manual solved are mutually exclusive; Codeforces-solved wins and stays non-clickable.
 - A local override can be cleared, which falls back to Codeforces status.
 - Manual overrides are additive; they do not represent local "unsolved" force-state.

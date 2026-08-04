@@ -85,10 +85,10 @@ const StatusControl = (props: { row: ProblemRow }) => {
       ? "skipped"
       : "unsolved";
   const title = isManualSolved
-    ? "Clear status (unsolved)"
+    ? "Mark skipped"
     : isSkipped
-      ? "Mark solved"
-      : "Mark skipped";
+      ? "Clear status (unsolved)"
+      : "Mark solved";
 
   return (
     <form
