@@ -9,7 +9,7 @@ When adding or changing a visible UI element, manually test it in the running ap
 - Filters are URL-backed and shareable/bookmarkable.
 - Tags are hidden unless `showTags=1`.
 - Division and tag filters are checkbox lists.
-- Rating filter uses sliders backed by hidden `minRating` / `maxRating` fields; changes update hidden GET fields and trigger HTMX filter refresh.
+- Rating filter uses sliders backed by hidden `minRating` / `maxRating` fields; changes update hidden GET fields and trigger HTMX filter refresh. Slider track extends one step past the rounded catalog min/max so those endpoints stay selectable; thumbs on the outer steps mean Any (param omitted). Irregular estimates are snapped to 100-step bounds for the track. Any active min/max bound excludes problems with no official rating and no estimate (`COALESCE` is null).
 - Tag mode defaults to `any`; `tagMode=all` is only included when explicitly selected.
 - Sort direction is URL-backed through `sortDirection=asc|desc` (asc/desc toggle button).
 - Bare `/problems` applies the signed-in user's saved default filters when set. Explicit query params win.
@@ -20,7 +20,7 @@ When adding or changing a visible UI element, manually test it in the running ap
 
 - Problem id/name links go to the contest-scoped Codeforces problem page; no local detail page.
 - Search (`q`) matches problem names, ids such as `1900A`, and raw contest names.
-- Rating column shows official CF rating, or `~N` when only a clist-style estimate exists (`title` explains estimated). Rank dots and min/max filters use `COALESCE(official, estimated)`.
+- Rating column shows official CF rating, or `~N` when only a clist-style estimate exists (`title` explains estimated). Rank dots and min/max filters use `COALESCE(official, estimated)`. Problems with neither are shown only when both rating bounds are Any.
 - De-duplicates shared Div. 1/Div. 2 aliases by `canonical_id` (round pairing + same problem name) after filters; aggregates CF solved state and manual overrides across the alias group. Contest history preserves contest-specific indices.
 - Solved/skipped toggles POST and re-render `#problem-list` plus summary via HTMX so rows disappear under filters like `solved=unsolved` or `solved=skipped`. `status.js` paints the button/row immediately (`htmx:beforeRequest`) and hides rows the location `solved` query would exclude; summary waits for the OOB swap. One control cycles unsolved → solved → skipped → unsolved (green row / yellow row). Override is stored per `canonical_id` (all placements share one toggle). Filter context comes from the `HX-Current-URL` header.
 - Filter `solved` accepts `all|solved|skipped|unsolved`; unsolved excludes skipped. Summary reports matched / solved / skipped / unsolved.

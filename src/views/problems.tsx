@@ -7,6 +7,7 @@ import {
   effectiveProblemRating,
   formatProblemRating,
   isEstimatedProblemRating,
+  ratingFilterSliderBounds,
   ratingTitle,
 } from "./rating.js";
 import { render } from "./render.js";
@@ -180,11 +181,9 @@ const ProblemRow = (props: { row: ProblemRow; showTags: boolean }) => {
 };
 
 const FilterForm = ({ filters, options }: ProblemsPageOptions) => {
-  const minAvailableRating = options.ratings[0] ?? 800;
-  const maxAvailableRating = options.ratings.at(-1) ?? 3500;
-  const minRatingValue = filters.minRating ?? minAvailableRating;
-  const maxRatingValue = filters.maxRating ?? maxAvailableRating;
-  const ratingStep = 100;
+  const { sliderMin, sliderMax, step: ratingStep } = ratingFilterSliderBounds(options.ratings);
+  const minRatingValue = filters.minRating ?? sliderMin;
+  const maxRatingValue = filters.maxRating ?? sliderMax;
 
   return (
     <form
@@ -221,8 +220,8 @@ const FilterForm = ({ filters, options }: ProblemsPageOptions) => {
       <fieldset
         class="rating-filter"
         data-rating-filter
-        data-min={minAvailableRating}
-        data-max={maxAvailableRating}
+        data-min={sliderMin}
+        data-max={sliderMax}
         data-step={ratingStep}
       >
         <legend>Rating</legend>
@@ -235,16 +234,16 @@ const FilterForm = ({ filters, options }: ProblemsPageOptions) => {
           <input
             type="range"
             data-rating-min
-            min={minAvailableRating}
-            max={maxAvailableRating}
+            min={sliderMin}
+            max={sliderMax}
             step={ratingStep}
             value={minRatingValue}
           />
           <input
             type="range"
             data-rating-max
-            min={minAvailableRating}
-            max={maxAvailableRating}
+            min={sliderMin}
+            max={sliderMax}
             step={ratingStep}
             value={maxRatingValue}
           />

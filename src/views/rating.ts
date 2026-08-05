@@ -44,6 +44,47 @@ export const effectiveProblemRating = (
   estimatedRating: number | null | undefined,
 ): number | null => rating ?? estimatedRating ?? null;
 
+export const RATING_FILTER_STEP = 100;
+
+export type RatingFilterSliderBounds = {
+  /** Lowest selectable rating bound (rounded down to step). */
+  minBound: number;
+  /** Highest selectable rating bound (rounded up to step). */
+  maxBound: number;
+  /** Range input minimum; thumb here means no minRating (Any). */
+  sliderMin: number;
+  /** Range input maximum; thumb here means no maxRating (Any). */
+  sliderMax: number;
+  step: number;
+};
+
+/**
+ * Build rating slider extents from catalog effective ratings.
+ *
+ * Estimates are often not multiples of 100, so bounds are snapped to
+ * `RATING_FILTER_STEP`. "Any" sits one step outside the rated span so the
+ * catalog min/max (e.g. 800–3500) remain selectable — previously those
+ * endpoints meant Any, which made unrated/unestimated problems flicker in
+ * and out and made a full rated-range filter impossible.
+ */
+export const ratingFilterSliderBounds = (
+  ratings: number[],
+  step: number = RATING_FILTER_STEP,
+): RatingFilterSliderBounds => {
+  const safeStep = step > 0 ? step : RATING_FILTER_STEP;
+  const rawMin = ratings[0] ?? 800;
+  const rawMax = ratings.at(-1) ?? 3500;
+  const minBound = Math.floor(rawMin / safeStep) * safeStep;
+  const maxBound = Math.max(minBound, Math.ceil(rawMax / safeStep) * safeStep);
+  return {
+    minBound,
+    maxBound,
+    sliderMin: minBound - safeStep,
+    sliderMax: maxBound + safeStep,
+    step: safeStep,
+  };
+};
+
 export const isEstimatedProblemRating = (
   rating: number | null,
   estimatedRating: number | null | undefined,
