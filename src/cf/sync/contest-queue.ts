@@ -30,6 +30,20 @@ export const enqueueContestHydrationJobs = (
   jobs: ContestHydrationJob[],
 ): number => {
   const timestamp = now();
+  const existingJob = db.prepare(`
+    SELECT status, priority
+    FROM contest_sync_jobs
+    WHERE user_id = @userId AND contest_id = @contestId
+  `);
+  const bumpPriority = db.prepare(`
+    UPDATE contest_sync_jobs
+    SET priority = @priority,
+      cf_handle = @cfHandle,
+      updated_at = @updatedAt
+    WHERE user_id = @userId
+      AND contest_id = @contestId
+      AND priority > @priority
+  `);
   const upsert = db.prepare(`
     INSERT INTO contest_sync_jobs (
       user_id,
@@ -74,6 +88,21 @@ export const enqueueContestHydrationJobs = (
   let changedRows = 0;
   transaction(db, () => {
     for (const job of jobs) {
+      const existing = existingJob.get({ userId, contestId: job.contestId }) as
+        | { status: string; priority: number }
+        | undefined;
+      // Already pending — keep it in flight; only tighten priority if needed.
+      if (existing?.status === "queued" || existing?.status === "running") {
+        bumpPriority.run({
+          userId,
+          cfHandle,
+          contestId: job.contestId,
+          priority: job.priority,
+          updatedAt: timestamp,
+        });
+        continue;
+      }
+
       const result = upsert.run({
         userId,
         cfHandle,

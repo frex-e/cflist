@@ -221,7 +221,7 @@ test("invalidateContestCaches clears rating-change cache and standings freshness
   db.close();
 });
 
-test("detectContestCorrections finds rank and rating mismatches", () => {
+test("detectContestCorrections finds rating mismatches and ignores standings vs rating rank drift", () => {
   const db = new DatabaseSync(":memory:");
   setupBase(db);
   seedStoredContestResult(db, { rank: 2, oldRating: 1500, newRating: 1510 });
@@ -238,6 +238,20 @@ test("detectContestCorrections finds rank and rating mismatches", () => {
     }],
   ]));
   assert.deepEqual(unchanged, []);
+
+  // Standings rank and /user.rating rank often differ for the same round.
+  const rankOnlyDrift = detectContestCorrections(db, userId, new Map([
+    [contestId, {
+      contestId,
+      contestName: "Round 100",
+      handle: cfHandle,
+      rank: 99,
+      ratingUpdateTimeSeconds: 9000,
+      oldRating: 1500,
+      newRating: 1510,
+    }],
+  ]));
+  assert.deepEqual(rankOnlyDrift, []);
 
   const corrected = detectContestCorrections(db, userId, new Map([
     [contestId, {
