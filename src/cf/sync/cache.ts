@@ -48,16 +48,12 @@ export const getCachedRatingChanges = (db: Db, contestId: number): CfRatingChang
 export const invalidateContestCaches = (db: Db, userId: string, contestId: number): void => {
   db.prepare("DELETE FROM contest_rating_changes_cache WHERE contest_id = @contestId").run({ contestId });
   db.prepare("DELETE FROM contest_performance_cache WHERE contest_id = @contestId").run({ contestId });
+  // Keep stored performance visible until hydration recalculates and overwrites it.
   db.prepare(
     `
     UPDATE user_contest_results
-    SET
-      performance = NULL,
-      standings_checked_at = CASE
-        WHEN user_id = @userId THEN NULL
-        ELSE standings_checked_at
-      END
-    WHERE contest_id = @contestId
+    SET standings_checked_at = NULL
+    WHERE user_id = @userId AND contest_id = @contestId
   `,
   ).run({ userId, contestId });
 };

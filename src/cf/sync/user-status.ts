@@ -116,12 +116,6 @@ const writeBasicContestResults = (
       old_rating = excluded.old_rating,
       new_rating = excluded.new_rating,
       rating_delta = excluded.rating_delta,
-      performance = CASE
-        WHEN excluded.old_rating IS NOT user_contest_results.old_rating
-          OR excluded.new_rating IS NOT user_contest_results.new_rating
-        THEN NULL
-        ELSE user_contest_results.performance
-      END,
       last_checked_at = excluded.last_checked_at
   `);
   const upsertUnrated = db.prepare(`

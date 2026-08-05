@@ -3,7 +3,6 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import type { CodeforcesClient } from "../src/cf/client.js";
 import {
-  backfillUserContestPerformances,
   invalidateContestCaches,
 } from "../src/cf/sync/cache.js";
 import {
@@ -210,10 +209,12 @@ test("invalidateContestCaches clears shared rating caches and user standings fre
 
   const ratingCache = db.prepare("SELECT COUNT(*) AS count FROM contest_rating_changes_cache").get() as { count: number };
   assert.equal(ratingCache.count, 0);
+  const performanceCache = db.prepare("SELECT COUNT(*) AS count FROM contest_performance_cache").get() as { count: number };
+  assert.equal(performanceCache.count, 0);
   const performance = db.prepare(
     "SELECT performance, standings_checked_at FROM user_contest_results WHERE user_id = @userId AND contest_id = @contestId",
   ).get({ userId, contestId }) as { performance: number | null; standings_checked_at: string | null };
-  assert.equal(performance.performance, null);
+  assert.equal(performance.performance, 1600);
   assert.equal(performance.standings_checked_at, null);
   db.close();
 });
@@ -368,7 +369,7 @@ test("hydrateUserContestResult with force re-fetches standings and filters local
   db.close();
 });
 
-test("rating sync clears performance before hydration recomputes it", async () => {
+test("rating sync keeps previous performance until hydration recomputes it", async () => {
   const db = new DatabaseSync(":memory:");
   setupBase(db);
   seedStoredContestResult(db, { rank: 2, oldRating: 1500, newRating: 1510, performance: 1600 });
@@ -378,21 +379,25 @@ test("rating sync clears performance before hydration recomputes it", async () =
   syncState.contestQueueRunning = false;
 
   try {
+    invalidateContestCaches(db, userId, contestId);
+    const afterInvalidate = db.prepare(
+      "SELECT performance, standings_checked_at FROM user_contest_results WHERE user_id = @userId AND contest_id = @contestId",
+    ).get({ userId, contestId }) as { performance: number | null; standings_checked_at: string | null };
+    assert.equal(afterInvalidate.performance, 1600);
+    assert.equal(afterInvalidate.standings_checked_at, null);
+
     const client = new CorrectionClient();
     client.apiRank = 2;
     client.apiNewRating = 1520;
     await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
 
-    const afterBasic = db.prepare(
+    const afterSync = db.prepare(
       "SELECT performance, new_rating FROM user_contest_results WHERE user_id = @userId AND contest_id = @contestId",
     ).get({ userId, contestId }) as { performance: number | null; new_rating: number };
 
-    assert.equal(afterBasic.new_rating, 1520);
-    backfillUserContestPerformances(db, userId);
-    const afterBackfill = db.prepare(
-      "SELECT performance FROM user_contest_results WHERE user_id = @userId AND contest_id = @contestId",
-    ).get({ userId, contestId }) as { performance: number | null };
-    assert.notEqual(afterBackfill.performance, 1600);
+    assert.equal(afterSync.new_rating, 1520);
+    assert.notEqual(afterSync.performance, null);
+    assert.notEqual(afterSync.performance, 1600);
   } finally {
     db.close();
     syncState.userRunning.clear();
