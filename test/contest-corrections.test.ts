@@ -199,7 +199,7 @@ class CorrectionClient {
   }
 }
 
-test("invalidateContestCaches clears shared rating caches and user standings freshness", () => {
+test("invalidateContestCaches clears rating-change cache and standings freshness", () => {
   const db = new DatabaseSync(":memory:");
   setupBase(db);
   seedStoredContestResult(db, { rank: 2, oldRating: 1500, newRating: 1510, performance: 1600 });
@@ -209,8 +209,10 @@ test("invalidateContestCaches clears shared rating caches and user standings fre
 
   const ratingCache = db.prepare("SELECT COUNT(*) AS count FROM contest_rating_changes_cache").get() as { count: number };
   assert.equal(ratingCache.count, 0);
-  const performanceCache = db.prepare("SELECT COUNT(*) AS count FROM contest_performance_cache").get() as { count: number };
-  assert.equal(performanceCache.count, 0);
+  const performanceCache = db.prepare(
+    "SELECT performance FROM contest_performance_cache WHERE contest_id = @contestId AND user_id = @userId",
+  ).get({ contestId, userId }) as { performance: number } | undefined;
+  assert.equal(performanceCache?.performance, 1600);
   const performance = db.prepare(
     "SELECT performance, standings_checked_at FROM user_contest_results WHERE user_id = @userId AND contest_id = @contestId",
   ).get({ userId, contestId }) as { performance: number | null; standings_checked_at: string | null };

@@ -389,9 +389,18 @@ test("forceRehydrateContestForAllUsers clears freshness and requeues while keepi
   assert.equal(cache.count, 0);
 
   const perfCache = db
-    .prepare(`SELECT COUNT(*) AS count FROM contest_performance_cache WHERE contest_id = 30`)
-    .get() as { count: number };
-  assert.equal(perfCache.count, 0);
+    .prepare(
+      `
+      SELECT performance
+      FROM contest_performance_cache
+      WHERE contest_id = 30
+      ORDER BY user_id
+    `,
+    )
+    .all() as Array<{ performance: number }>;
+  assert.equal(perfCache.length, 2);
+  assert.equal(perfCache[0]!.performance, 2000);
+  assert.equal(perfCache[1]!.performance, 2000);
 
   const results = db
     .prepare(

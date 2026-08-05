@@ -203,8 +203,10 @@ test("POST /settings/refresh-contest-details clears freshness and queues hydrati
 
     const ratingCache = db.prepare("SELECT COUNT(*) AS count FROM contest_rating_changes_cache").get() as { count: number };
     assert.equal(ratingCache.count, 0);
-    const performanceCache = db.prepare("SELECT COUNT(*) AS count FROM contest_performance_cache").get() as { count: number };
-    assert.equal(performanceCache.count, 0);
+    const performanceCache = db.prepare(
+      "SELECT performance FROM contest_performance_cache WHERE contest_id = 1 AND user_id = @userId",
+    ).get({ userId }) as { performance: number } | undefined;
+    assert.equal(performanceCache?.performance, 2400);
     const performance = db.prepare(
       "SELECT performance, standings_checked_at FROM user_contest_results WHERE user_id = @userId AND contest_id = 1",
     ).get({ userId }) as { performance: number | null; standings_checked_at: string | null };
