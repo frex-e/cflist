@@ -15,7 +15,7 @@ import {
   isUpsolved,
   type ContestProblemResult,
 } from "../contest-results.js";
-import { getOrCalculatePerformance } from "./cache.js";
+import { calculateAndPersistPerformance } from "./cache.js";
 import { maybeEstimateProblemRatingsAfterHydration } from "./estimate-problem-ratings.js";
 import { codeforcesProblemUrl, hasHandle, loadContestsById, now } from "./helpers.js";
 
@@ -265,7 +265,7 @@ export const hydrateUserContestResult = async (
       }
     : undefined;
   const performance = existingRatingChange && existingRatingChange.rank !== 1
-    ? await getOrCalculatePerformance(db, client, userId, contestId, cfHandle)
+    ? await calculateAndPersistPerformance(db, client, userId, contestId, cfHandle)
     : null;
   const standings = await client.contestStandings(contestId);
   const knownProblemRows = db

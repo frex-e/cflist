@@ -182,13 +182,11 @@ export const forceRehydrateContestForAllUsers = (db: Db, contestId: number): num
   db.prepare("DELETE FROM contest_rating_changes_cache WHERE contest_id = @contestId").run({
     contestId,
   });
-  db.prepare("DELETE FROM contest_performance_cache WHERE contest_id = @contestId").run({
-    contestId,
-  });
+  // Leave performance (row + cache) alone; hydration recalculates and overwrites.
   db.prepare(
     `
     UPDATE user_contest_results
-    SET performance = NULL, standings_checked_at = NULL
+    SET standings_checked_at = NULL
     WHERE contest_id = @contestId
   `,
   ).run({ contestId });

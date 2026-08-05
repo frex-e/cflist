@@ -46,18 +46,14 @@ export const getCachedRatingChanges = (db: Db, contestId: number): CfRatingChang
 };
 
 export const invalidateContestCaches = (db: Db, userId: string, contestId: number): void => {
+  // Drop rating-change source data so hydration refetches it. Leave performance
+  // (row + cache) alone; hydration recalculates and overwrites when ready.
   db.prepare("DELETE FROM contest_rating_changes_cache WHERE contest_id = @contestId").run({ contestId });
-  db.prepare("DELETE FROM contest_performance_cache WHERE contest_id = @contestId").run({ contestId });
   db.prepare(
     `
     UPDATE user_contest_results
-    SET
-      performance = NULL,
-      standings_checked_at = CASE
-        WHEN user_id = @userId THEN NULL
-        ELSE standings_checked_at
-      END
-    WHERE contest_id = @contestId
+    SET standings_checked_at = NULL
+    WHERE user_id = @userId AND contest_id = @contestId
   `,
   ).run({ userId, contestId });
 };
@@ -186,24 +182,13 @@ export const getRatedContestIndex = (db: Db, userId: string, contestId: number):
   return index >= 0 ? index + 1 : undefined;
 };
 
-export const getOrCalculatePerformance = async (
+export const calculateAndPersistPerformance = async (
   db: Db,
   client: CodeforcesClient,
   userId: string,
   contestId: number,
   handle: string,
 ): Promise<number | null> => {
-  const cached = db
-    .prepare(
-      `
-      SELECT performance
-      FROM contest_performance_cache
-      WHERE contest_id = @contestId AND user_id = @userId
-    `,
-    )
-    .get({ contestId, userId }) as { performance: number | null } | undefined;
-  if (cached) return cached.performance;
-
   const changes = await getOrFetchRatingChanges(db, client, contestId);
   const ratedContestIndex = getRatedContestIndex(db, userId, contestId);
   const performance = estimateContestPerformance(changes, handle, ratedContestIndex)?.performance ?? null;

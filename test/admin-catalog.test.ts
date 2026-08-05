@@ -335,7 +335,7 @@ test("clearProblemEstimate only clears one problem", () => {
   db.close();
 });
 
-test("forceRehydrateContestForAllUsers nulls all users and requeues", () => {
+test("forceRehydrateContestForAllUsers clears freshness and requeues while keeping performance", () => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
   migrate(db);
@@ -389,9 +389,18 @@ test("forceRehydrateContestForAllUsers nulls all users and requeues", () => {
   assert.equal(cache.count, 0);
 
   const perfCache = db
-    .prepare(`SELECT COUNT(*) AS count FROM contest_performance_cache WHERE contest_id = 30`)
-    .get() as { count: number };
-  assert.equal(perfCache.count, 0);
+    .prepare(
+      `
+      SELECT performance
+      FROM contest_performance_cache
+      WHERE contest_id = 30
+      ORDER BY user_id
+    `,
+    )
+    .all() as Array<{ performance: number }>;
+  assert.equal(perfCache.length, 2);
+  assert.equal(perfCache[0]!.performance, 2000);
+  assert.equal(perfCache[1]!.performance, 2000);
 
   const results = db
     .prepare(
@@ -409,7 +418,7 @@ test("forceRehydrateContestForAllUsers nulls all users and requeues", () => {
     }>;
   assert.equal(results.length, 2);
   for (const row of results) {
-    assert.equal(row.performance, null);
+    assert.equal(row.performance, 2000);
     assert.equal(row.standings_checked_at, null);
   }
 
@@ -485,7 +494,7 @@ test("POST force-rehydrate works for admin and preserves solved rows", async () 
         performance: number | null;
         standings_checked_at: string | null;
       };
-    assert.equal(result.performance, null);
+    assert.equal(result.performance, 2100);
     assert.equal(result.standings_checked_at, null);
 
     const solved = (

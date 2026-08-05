@@ -171,6 +171,13 @@ test("POST /settings/refresh-contest-details clears freshness and queues hydrati
     seedUserCfData(db, userId);
     db.prepare(
       `
+      UPDATE user_contest_results
+      SET performance = 2400
+      WHERE user_id = @userId AND contest_id = 1
+    `,
+    ).run({ userId });
+    db.prepare(
+      `
       INSERT INTO contest_rating_changes_cache (contest_id, raw_json, fetched_at)
       VALUES (1, '[]', '2026-01-01T00:00:00.000Z')
     `,
@@ -196,10 +203,14 @@ test("POST /settings/refresh-contest-details clears freshness and queues hydrati
 
     const ratingCache = db.prepare("SELECT COUNT(*) AS count FROM contest_rating_changes_cache").get() as { count: number };
     assert.equal(ratingCache.count, 0);
+    const performanceCache = db.prepare(
+      "SELECT performance FROM contest_performance_cache WHERE contest_id = 1 AND user_id = @userId",
+    ).get({ userId }) as { performance: number } | undefined;
+    assert.equal(performanceCache?.performance, 2400);
     const performance = db.prepare(
       "SELECT performance, standings_checked_at FROM user_contest_results WHERE user_id = @userId AND contest_id = 1",
     ).get({ userId }) as { performance: number | null; standings_checked_at: string | null };
-    assert.equal(performance.performance, null);
+    assert.equal(performance.performance, 2400);
     assert.equal(performance.standings_checked_at, null);
     const job = db.prepare(
       "SELECT status FROM contest_sync_jobs WHERE user_id = @userId AND contest_id = 1",
