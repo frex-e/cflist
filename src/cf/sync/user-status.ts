@@ -4,6 +4,7 @@ import { shouldRefreshProblemMetadata, shouldSyncCatalog } from "../../db/querie
 import {
   acceptedProblemsFromSubmissions,
   expandAcceptedProblemsByCanonicalId,
+  isAcceptedSubmission,
   problemKey,
   type AcceptedProblem,
 } from "../accepted-problems.js";
@@ -41,7 +42,7 @@ const ensureAcceptedProblemsExist = (
   const acceptedProblems = new Map<string, CfSubmission["problem"]>();
   for (const submission of submissions) {
     const contestId = submission.problem.contestId;
-    if (submission.verdict !== "OK" || typeof contestId !== "number") continue;
+    if (!isAcceptedSubmission(submission) || typeof contestId !== "number") continue;
     const key = problemKey(contestId, submission.problem.index);
     if (accepted.has(key)) acceptedProblems.set(key, submission.problem);
   }

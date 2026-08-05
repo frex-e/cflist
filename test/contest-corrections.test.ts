@@ -420,3 +420,39 @@ test("rating sync keeps previous performance until hydration recomputes it", asy
     syncState.contestQueueRunning = false;
   }
 });
+
+test("collectContestsNeedingRefresh includes contests still in system test", () => {
+  const db = new DatabaseSync(":memory:");
+  setupBase(db);
+
+  try {
+    const freshCheck = new Date().toISOString();
+    seedStoredContestResult(db, {
+      rank: 2,
+      oldRating: 1500,
+      newRating: 1510,
+      standingsCheckedAt: freshCheck,
+    });
+    db.prepare(`UPDATE contests SET phase = 'SYSTEM_TEST' WHERE id = @contestId`).run({ contestId });
+
+    const ratings = new Map<number, CfRatingChange>([
+      [
+        contestId,
+        {
+          contestId,
+          contestName: "Codeforces Round 100 (Div. 2)",
+          handle: cfHandle,
+          rank: 2,
+          ratingUpdateTimeSeconds: 9000,
+          oldRating: 1500,
+          newRating: 1510,
+        },
+      ],
+    ]);
+
+    const refreshIds = collectContestsNeedingRefresh(db, userId, ratings, [contestId]);
+    assert.deepEqual(refreshIds, [contestId]);
+  } finally {
+    db.close();
+  }
+});

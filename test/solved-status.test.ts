@@ -41,6 +41,52 @@ test("builds accepted problem records from OK submissions", () => {
   assert.equal(item?.firstAcceptedAtSeconds, 10);
 });
 
+test("treats system-testing submissions as accepted while verdict is null", () => {
+  const submissions: CfSubmission[] = [
+    {
+      id: 4,
+      contestId: 100,
+      creationTimeSeconds: 40,
+      verdict: undefined,
+      testset: "TESTS",
+      passedTestCount: 6,
+      problem: { contestId: 100, index: "B", name: "B", tags: [] },
+    },
+    {
+      id: 3,
+      contestId: 100,
+      creationTimeSeconds: 30,
+      verdict: "PRETESTS_PASSED",
+      testset: "PRETESTS",
+      problem: { contestId: 100, index: "C", name: "C", tags: [] },
+    },
+    {
+      id: 2,
+      contestId: 100,
+      creationTimeSeconds: 20,
+      verdict: undefined,
+      testset: "PRETESTS",
+      passedTestCount: 1,
+      problem: { contestId: 100, index: "D", name: "D", tags: [] },
+    },
+    {
+      id: 1,
+      contestId: 100,
+      creationTimeSeconds: 10,
+      verdict: "RUNTIME_ERROR",
+      testset: "TESTS",
+      passedTestCount: 0,
+      problem: { contestId: 100, index: "E", name: "E", tags: [] },
+    },
+  ];
+
+  const accepted = acceptedProblemsFromSubmissions(submissions, contests);
+
+  assert.deepEqual([...accepted.keys()].sort(), ["100:B", "100:C"]);
+  assert.equal(accepted.get("100:B")?.firstSubmissionId, 4);
+  assert.equal(accepted.get("100:C")?.firstSubmissionId, 3);
+});
+
 test("ignores gyms and non-regular problemset submissions", () => {
   const submissions: CfSubmission[] = [
     {

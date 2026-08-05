@@ -19,6 +19,43 @@ import { calculateAndPersistPerformance } from "./cache.js";
 import { maybeEstimateProblemRatingsAfterHydration } from "./estimate-problem-ratings.js";
 import { codeforcesProblemUrl, hasHandle, loadContestsById, now } from "./helpers.js";
 
+const upsertContestMetadataFromStandings = (
+  db: Db,
+  standingsContest: CfContest,
+  checkedAt: string,
+  contestsById: Map<number, CfContest>,
+): void => {
+  db.prepare(
+    `
+    UPDATE contests
+    SET
+      name = COALESCE(@name, name),
+      phase = COALESCE(@phase, phase),
+      duration_seconds = COALESCE(@durationSeconds, duration_seconds),
+      start_time_seconds = COALESCE(@startTimeSeconds, start_time_seconds),
+      raw_json = @rawJson,
+      updated_at = @checkedAt
+    WHERE id = @contestId
+  `,
+  ).run({
+    contestId: standingsContest.id,
+    name: standingsContest.name ?? null,
+    phase: standingsContest.phase ?? null,
+    durationSeconds: standingsContest.durationSeconds ?? null,
+    startTimeSeconds: standingsContest.startTimeSeconds ?? null,
+    rawJson: JSON.stringify(standingsContest),
+    checkedAt,
+  });
+
+  const existing = contestsById.get(standingsContest.id);
+  contestsById.set(standingsContest.id, {
+    ...existing,
+    ...standingsContest,
+    id: standingsContest.id,
+    name: standingsContest.name ?? existing?.name ?? `Contest ${standingsContest.id}`,
+  });
+};
+
 const recomputeExistingUpsolves = (
   db: Db,
   userId: string,
@@ -30,7 +67,7 @@ const recomputeExistingUpsolves = (
   const rows = db
     .prepare(
       `
-      SELECT problem_index, solved_in_contest
+      SELECT problem_index, solved_in_contest, points
       FROM user_contest_problem_results
       WHERE user_id = @userId AND contest_id = @contestId
     `,
@@ -38,10 +75,21 @@ const recomputeExistingUpsolves = (
     .all({ userId, contestId }) as {
       problem_index: string;
       solved_in_contest: number;
+      points: number | null;
     }[];
-  const update = db.prepare(`
+  const updateUpsolvedOnly = db.prepare(`
     UPDATE user_contest_problem_results
     SET upsolved = @upsolved
+    WHERE user_id = @userId
+      AND contest_id = @contestId
+      AND problem_index = @problemIndex
+  `);
+  const updateFromAccepted = db.prepare(`
+    UPDATE user_contest_problem_results
+    SET
+      solved_in_contest = @solvedInContest,
+      upsolved = @upsolved,
+      best_submission_time_seconds = @bestSubmissionTimeSeconds
     WHERE user_id = @userId
       AND contest_id = @contestId
       AND problem_index = @problemIndex
@@ -49,12 +97,38 @@ const recomputeExistingUpsolves = (
 
   for (const row of rows) {
     const firstAccepted = accepted.get(problemKey(contestId, row.problem_index));
-    const upsolved = isUpsolved(row.solved_in_contest !== 0, firstAccepted, endTime);
-    update.run({
+    // Standings-backed rows keep points > 0 from contest.standings; only refresh upsolve.
+    // Submission-fallback rows (no standings points) must track accepted status as
+    // system tests rewrite verdicts between OK, null, and definitive failure.
+    if (row.points !== null && row.points > 0) {
+      const upsolved = isUpsolved(row.solved_in_contest !== 0, firstAccepted, endTime);
+      updateUpsolvedOnly.run({
+        userId,
+        contestId,
+        problemIndex: row.problem_index,
+        upsolved: upsolved ? 1 : 0,
+      });
+      continue;
+    }
+
+    const acceptedDuringContest =
+      firstAccepted !== undefined
+      && contest?.startTimeSeconds !== undefined
+      && endTime !== undefined
+      && firstAccepted.firstAcceptedAtSeconds >= contest.startTimeSeconds
+      && firstAccepted.firstAcceptedAtSeconds <= endTime;
+    const solvedInContest = acceptedDuringContest ? 1 : 0;
+    const upsolved = isUpsolved(solvedInContest, firstAccepted, endTime);
+    const bestSubmissionTimeSeconds = acceptedDuringContest && contest?.startTimeSeconds !== undefined
+      ? firstAccepted!.firstAcceptedAtSeconds - contest.startTimeSeconds
+      : null;
+    updateFromAccepted.run({
       userId,
       contestId,
       problemIndex: row.problem_index,
+      solvedInContest,
       upsolved: upsolved ? 1 : 0,
+      bestSubmissionTimeSeconds,
     });
   }
 };
@@ -268,6 +342,9 @@ export const hydrateUserContestResult = async (
     ? await calculateAndPersistPerformance(db, client, userId, contestId, cfHandle)
     : null;
   const standings = await client.contestStandings(contestId);
+  if (standings.contest) {
+    upsertContestMetadataFromStandings(db, standings.contest, checkedAt, contestsById);
+  }
   const knownProblemRows = db
     .prepare(
       `
@@ -282,7 +359,7 @@ export const hydrateUserContestResult = async (
   importStandingsProblems(db, contestId, standings, contestsById, checkedAt, knownProblems);
 
   const row = standings.rows.find((standingsRow) => hasHandle(standingsRow, cfHandle));
-  const contest = contestsById.get(contestId);
+  const contest = standings.contest ?? contestsById.get(contestId);
   const refreshedAccepted = acceptedProblemsFromDb(db, userId);
   const problemResults = computeProblemResults(
     contestId,

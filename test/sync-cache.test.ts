@@ -1369,3 +1369,126 @@ test("contest queue reclaims stale running jobs after restart", async () => {
     syncState.contestQueueRunning = false;
   }
 });
+
+class SystemTestNullVerdictClient extends SubmissionOnlyClient {
+  async contests(): Promise<CfContest[]> {
+    return [
+      {
+        id: 100,
+        name: "Codeforces Round 100 (Div. 3)",
+        phase: "SYSTEM_TEST",
+        startTimeSeconds: 1000,
+        durationSeconds: 7200,
+      },
+    ];
+  }
+
+  async problemset(): Promise<CfProblemset> {
+    return {
+      problems: [
+        { contestId: 100, index: "A", name: "A", tags: [] },
+        { contestId: 100, index: "B", name: "B", tags: [] },
+      ],
+      problemStatistics: [
+        { contestId: 100, index: "A", solvedCount: 10 },
+        { contestId: 100, index: "B", solvedCount: 5 },
+      ],
+    };
+  }
+
+  async userStatus(): Promise<CfSubmission[]> {
+    return [
+      {
+        id: 1,
+        contestId: 100,
+        creationTimeSeconds: 1200,
+        verdict: undefined,
+        testset: "TESTS",
+        passedTestCount: 4,
+        problem: { contestId: 100, index: "A", name: "A", tags: [] },
+      },
+      {
+        id: 2,
+        contestId: 100,
+        creationTimeSeconds: 1500,
+        verdict: "OK",
+        testset: "TESTS",
+        passedTestCount: 10,
+        problem: { contestId: 100, index: "B", name: "B", tags: [] },
+      },
+    ];
+  }
+
+  async contestStandings(_contestId = 100): Promise<CfStandings> {
+    this.standingsCalls += 1;
+    return {
+      contest: {
+        id: 100,
+        name: "Codeforces Round 100 (Div. 3)",
+        phase: "SYSTEM_TEST",
+        startTimeSeconds: 1000,
+        durationSeconds: 7200,
+      },
+      problems: [
+        { contestId: 100, index: "A", name: "A", tags: [] },
+        { contestId: 100, index: "B", name: "B", tags: [] },
+      ],
+      // Out-of-competition participants are absent from public standings.
+      rows: [],
+    };
+  }
+}
+
+test("user sync keeps system-testing accepts on problems and contest pills", async () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+  insertUser(db);
+  syncState.catalogRunning = false;
+  syncState.userRunning.clear();
+  syncState.contestQueueRunning = false;
+
+  try {
+    const client = new SystemTestNullVerdictClient();
+    await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
+
+    const statusRows = db
+      .prepare(
+        `
+        SELECT contest_id, problem_index
+        FROM user_problem_status
+        ORDER BY problem_index
+      `,
+      )
+      .all() as { contest_id: number; problem_index: string }[];
+    const pillRows = db
+      .prepare(
+        `
+        SELECT problem_index, solved_in_contest, upsolved, points
+        FROM user_contest_problem_results
+        ORDER BY problem_index
+      `,
+      )
+      .all() as {
+        problem_index: string;
+        solved_in_contest: number;
+        upsolved: number;
+        points: number | null;
+      }[];
+    const phase = db.prepare("SELECT phase FROM contests WHERE id = 100").get() as { phase: string };
+
+    assert.deepEqual(statusRows.map((row) => ({ ...row })), [
+      { contest_id: 100, problem_index: "A" },
+      { contest_id: 100, problem_index: "B" },
+    ]);
+    assert.deepEqual(pillRows.map((row) => ({ ...row })), [
+      { problem_index: "A", solved_in_contest: 1, upsolved: 0, points: null },
+      { problem_index: "B", solved_in_contest: 1, upsolved: 0, points: null },
+    ]);
+    assert.equal(phase.phase, "SYSTEM_TEST");
+  } finally {
+    db.close();
+    syncState.userRunning.clear();
+    syncState.contestQueueRunning = false;
+  }
+});
