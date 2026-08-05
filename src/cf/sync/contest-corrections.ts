@@ -30,9 +30,11 @@ export const detectContestCorrections = (
     const apiChange = ratingsByContestId.get(stored.contest_id);
     if (!apiChange) continue;
 
+    // Compare ratings only. Standings `rank` and `/user.rating` rank often differ
+    // for the same contest (rated vs full field), so rank mismatches are not a
+    // reliable signal and caused every sync to re-hydrate the same contests.
     if (
-      apiChange.rank !== stored.rank
-      || apiChange.oldRating !== stored.old_rating
+      apiChange.oldRating !== stored.old_rating
       || apiChange.newRating !== stored.new_rating
     ) {
       correctedContestIds.push(stored.contest_id);
