@@ -281,9 +281,13 @@ test("isContestCacheStale uses per-user standings freshness and only requires ra
 
   db.prepare("UPDATE user_contest_results SET standings_checked_at = ?").run(fresh);
   assert.equal(isContestCacheStale(db, userId, contestId, 14), true);
+  // Empty rating-changes cache is a negative/"unavailable" marker, not usable data.
   db.prepare(
     "INSERT INTO contest_rating_changes_cache (contest_id, raw_json, fetched_at) VALUES (?, '[]', ?)",
   ).run(contestId, fresh);
+  assert.equal(isContestCacheStale(db, userId, contestId, 14), true);
+  db.prepare("DELETE FROM contest_rating_changes_cache WHERE contest_id = ?").run(contestId);
+  seedCaches(db, fresh);
   assert.equal(isContestCacheStale(db, userId, contestId, 14), false);
 
   const stale = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();

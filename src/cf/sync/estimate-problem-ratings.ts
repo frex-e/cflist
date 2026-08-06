@@ -365,24 +365,37 @@ export const maybeEstimateProblemRatingsAfterHydration = async (
 export const estimateMissingProblemRatings = async (
   db: Db,
   client: CodeforcesClient,
+  options: { skipContestIds?: ReadonlySet<number> } = {},
 ): Promise<number> => {
   const needing = listUnratedProblemsNeedingEstimate(db);
   if (needing.length === 0) return 0;
 
   const byContest = new Map<number, typeof needing>();
   for (const row of needing) {
+    if (options.skipContestIds?.has(row.contestId)) continue;
     const list = byContest.get(row.contestId) ?? [];
     list.push(row);
     byContest.set(row.contestId, list);
   }
+  if (byContest.size === 0) return 0;
 
   const nowSeconds = Math.floor(Date.now() / 1000);
   const maxRating = maxOfficialProblemRatingTag(db);
   const processed = new Set<number>();
   let updated = 0;
 
-  for (const [contestId, problems] of byContest) {
+  // Newest contests first so a just-finished Div. 3 is estimated before we burn
+  // the CF rate limit on older permanently-unrated rounds (April Fools, etc.).
+  const contestIds = [...byContest.keys()].sort((a, b) => {
+    const aStart = loadContestRow(db, a)?.startTimeSeconds ?? 0;
+    const bStart = loadContestRow(db, b)?.startTimeSeconds ?? 0;
+    if (aStart !== bStart) return bStart - aStart;
+    return b - a;
+  });
+
+  for (const contestId of contestIds) {
     if (processed.has(contestId)) continue;
+    const problems = byContest.get(contestId)!;
 
     const contest = loadContestRow(db, contestId);
     const dbEndTime = contest ? contestEndTime(contest) : undefined;

@@ -18,6 +18,7 @@ import { refreshProblemMetadata, syncCatalog } from "./catalog.js";
 import { getPairedContestId } from "./canonical-problems.js";
 import { drainContestSyncJobs, enqueueContestHydrationJobs } from "./contest-queue.js";
 import { recomputeExistingUpsolvesForUser } from "./contest-hydration.js";
+import { estimateMissingProblemRatings } from "./estimate-problem-ratings.js";
 import { codeforcesProblemUrl, contestSortValue, ensureContestsExist, loadContestsById, missingContestIds, now } from "./helpers.js";
 import { syncState } from "./state.js";
 
@@ -405,15 +406,35 @@ export const syncUserStatus = async (
     contestsById = loadContestsById(db);
     recomputeAllExistingUpsolves(db, userId, contestsById, accepted);
 
+    // OOC Div. 3 (etc.): hydration often runs before rating changes exist and is not
+    // re-queued afterward (no user.rating correction). Skip contests still waiting on
+    // the hydration queue — those will estimate after standings land.
+    const pendingHydration = db
+      .prepare(
+        `
+        SELECT contest_id AS contestId
+        FROM contest_sync_jobs
+        WHERE user_id = @userId
+          AND status IN ('queued', 'running')
+      `,
+      )
+      .all({ userId }) as Array<{ contestId: number }>;
+    const estimatedCount = await estimateMissingProblemRatings(db, client, {
+      skipContestIds: new Set(pendingHydration.map((row) => row.contestId)),
+    });
+
     const refreshNote = refreshContestIds.length > 0
       ? `; refreshed ${refreshContestIds.length} contest${refreshContestIds.length === 1 ? "" : "s"} after Codeforces updates`
+      : "";
+    const estimateNote = estimatedCount > 0
+      ? `; estimated ${estimatedCount} problem rating${estimatedCount === 1 ? "" : "s"}`
       : "";
 
     finishSyncRun(
       db,
       syncRunId,
       "success",
-      `Synced ${accepted.size} solved problems and queued ${enqueuedContestResults + enqueuedPairedProbes} contest detail refreshes for ${cfHandle}${refreshNote}.`,
+      `Synced ${accepted.size} solved problems and queued ${enqueuedContestResults + enqueuedPairedProbes} contest detail refreshes for ${cfHandle}${refreshNote}${estimateNote}.`,
       now(),
     );
   } catch (error) {

@@ -1,9 +1,14 @@
+import { config } from "../../config.js";
 import type { Db } from "../../db/connection.js";
 import { estimateContestPerformance } from "../rating.js";
 import type { CfRatingChange } from "../types.js";
 import type { CodeforcesClient } from "../client.js";
 
 const now = (): string => new Date().toISOString();
+
+/** How long an empty rating-changes cache (unavailable / not yet published) is trusted. */
+export const ratingChangesEmptyRetryMs = (): number =>
+  Math.max(1, config.syncUnratedIntervalMinutes) * 60 * 1000;
 
 export const parseCachedJson = <T>(value: string | undefined): T | undefined => {
   if (!value) return undefined;
@@ -14,18 +19,22 @@ export const parseCachedJson = <T>(value: string | undefined): T | undefined => 
   }
 };
 
-const getOrFetchRatingChangesCache = async (
+const readRatingChangesCacheRow = (
   db: Db,
   contestId: number,
-  fetcher: () => Promise<CfRatingChange[]>,
-): Promise<CfRatingChange[]> => {
-  const cached = db
-    .prepare("SELECT raw_json FROM contest_rating_changes_cache WHERE contest_id = @contestId")
-    .get({ contestId }) as { raw_json: string } | undefined;
-  const parsed = parseCachedJson<CfRatingChange[]>(cached?.raw_json);
-  if (parsed !== undefined) return parsed;
+): { raw_json: string; fetched_at: string } | undefined => {
+  return db
+    .prepare(
+      `
+      SELECT raw_json, fetched_at
+      FROM contest_rating_changes_cache
+      WHERE contest_id = @contestId
+    `,
+    )
+    .get({ contestId }) as { raw_json: string; fetched_at: string } | undefined;
+};
 
-  const data = await fetcher();
+const writeRatingChangesCache = (db: Db, contestId: number, data: CfRatingChange[]): void => {
   db.prepare(
     `
     INSERT INTO contest_rating_changes_cache (contest_id, raw_json, fetched_at)
@@ -35,14 +44,70 @@ const getOrFetchRatingChangesCache = async (
       fetched_at = excluded.fetched_at
   `,
   ).run({ contestId, rawJson: JSON.stringify(data), fetchedAt: now() });
-  return data;
 };
 
+const deleteRatingChangesCache = (db: Db, contestId: number): void => {
+  db.prepare("DELETE FROM contest_rating_changes_cache WHERE contest_id = @contestId").run({
+    contestId,
+  });
+};
+
+const isFreshEmptyCache = (fetchedAt: string): boolean => {
+  const fetchedAtMs = Date.parse(fetchedAt);
+  return Number.isFinite(fetchedAtMs) && Date.now() - fetchedAtMs < ratingChangesEmptyRetryMs();
+};
+
+/**
+ * Empty `[]` means "not available yet" (or an unrated contest). Do not treat it as a
+ * permanent hit — retry after `syncUnratedIntervalMinutes` so estimates can fill in
+ * once Codeforces publishes rating changes (common for Div. 3 OOC hydrations).
+ */
+const getOrFetchRatingChangesCache = async (
+  db: Db,
+  contestId: number,
+  fetcher: () => Promise<CfRatingChange[]>,
+): Promise<CfRatingChange[]> => {
+  const cached = readRatingChangesCacheRow(db, contestId);
+  if (cached) {
+    const parsed = parseCachedJson<CfRatingChange[]>(cached.raw_json);
+    if (parsed !== undefined && parsed.length > 0) return parsed;
+    if (parsed !== undefined && parsed.length === 0 && isFreshEmptyCache(cached.fetched_at)) {
+      return [];
+    }
+    // Corrupt or stale empty — drop and refetch.
+    deleteRatingChangesCache(db, contestId);
+  }
+
+  try {
+    const data = await fetcher();
+    writeRatingChangesCache(db, contestId, data);
+    return data;
+  } catch (error) {
+    // Negative-cache unavailability so estimate passes are not crushed by repeated
+    // 400s for April Fools / permanently unrated rounds on every sync.
+    writeRatingChangesCache(db, contestId, []);
+    throw error;
+  }
+};
+
+/**
+ * Non-empty cached rating changes only. Fresh empty (unavailable) is a miss here so
+ * callers still attempt getOrFetch, which honors the empty TTL without an extra GET.
+ */
 export const getCachedRatingChanges = (db: Db, contestId: number): CfRatingChange[] | undefined => {
-  const cached = db
-    .prepare("SELECT raw_json FROM contest_rating_changes_cache WHERE contest_id = @contestId")
-    .get({ contestId }) as { raw_json: string } | undefined;
-  return parseCachedJson<CfRatingChange[]>(cached?.raw_json);
+  const cached = readRatingChangesCacheRow(db, contestId);
+  if (!cached) return undefined;
+
+  const parsed = parseCachedJson<CfRatingChange[]>(cached.raw_json);
+  if (parsed === undefined) {
+    deleteRatingChangesCache(db, contestId);
+    return undefined;
+  }
+  if (parsed.length === 0) {
+    if (!isFreshEmptyCache(cached.fetched_at)) deleteRatingChangesCache(db, contestId);
+    return undefined;
+  }
+  return parsed;
 };
 
 export const invalidateContestCaches = (db: Db, userId: string, contestId: number): void => {

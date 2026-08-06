@@ -69,12 +69,25 @@ const cacheFetchedAt = (
   if (!contestResult) return undefined;
 
   const ratingChanges = db
-    .prepare("SELECT fetched_at FROM contest_rating_changes_cache WHERE contest_id = @contestId")
-    .get({ contestId }) as { fetched_at: string } | undefined;
+    .prepare("SELECT raw_json, fetched_at FROM contest_rating_changes_cache WHERE contest_id = @contestId")
+    .get({ contestId }) as { raw_json: string; fetched_at: string } | undefined;
+
+  let ratingChangesFetchedAt: string | null = null;
+  if (ratingChanges) {
+    try {
+      const parsed = JSON.parse(ratingChanges.raw_json) as unknown;
+      // Empty [] is a negative cache ("unavailable"), not usable rating data.
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        ratingChangesFetchedAt = ratingChanges.fetched_at;
+      }
+    } catch {
+      ratingChangesFetchedAt = null;
+    }
+  }
 
   return {
     standingsFetchedAt: contestResult.standings_checked_at,
-    ratingChangesFetchedAt: ratingChanges?.fetched_at ?? null,
+    ratingChangesFetchedAt,
     rated: contestResult.new_rating !== null,
   };
 };
