@@ -540,3 +540,97 @@ test("standings upsert preserves estimate when standings omit rating", () => {
   assert.equal(row.estimated_rating, 1800);
   db.close();
 });
+
+test("metadata estimate pass recovers after OOC hydrate before rating changes", async () => {
+  const db = createTestDb();
+  const userId = randomUUID();
+  seedUser(db, userId, "highRated");
+  seedFinishedContest(db, 2254, "FINISHED", true);
+  seedUnratedProblem(db, 2254, "A");
+  seedUnratedProblem(db, 2254, "B");
+
+  // Out-of-competition: standings row exists, but no user.rating / stored ratings.
+  db.prepare(
+    `
+    INSERT INTO user_contest_results (
+      user_id, contest_id, rank, old_rating, new_rating, rating_delta, last_checked_at
+    ) VALUES (@userId, 2254, NULL, NULL, NULL, NULL, '2026-01-01T00:00:00.000Z')
+  `,
+  ).run({ userId });
+
+  const client = new FakeClient();
+  client.failRatingChanges = true;
+  await hydrateUserContestResult(db, userId, "highRated", 2254, client as never);
+
+  const before = db
+    .prepare("SELECT estimated_rating FROM problems WHERE contest_id = 2254 AND problem_index = 'A'")
+    .get() as { estimated_rating: number | null };
+  assert.equal(before.estimated_rating, null);
+
+  // Failed rating-changes fetches are negative-cached briefly; age the empty row past
+  // the retry window (same as SYNC_UNRATED_INTERVAL_MINUTES) so the next pass refetches.
+  const stale = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+  db.prepare(
+    `
+    UPDATE contest_rating_changes_cache
+    SET fetched_at = @stale
+    WHERE contest_id = 2254
+  `,
+  ).run({ stale });
+
+  // Rating changes publish later; no correction re-hydrate for OOC users.
+  client.failRatingChanges = false;
+  const updated = await estimateMissingProblemRatings(db, client as never);
+  assert.equal(updated, 2);
+
+  const rowA = db
+    .prepare("SELECT estimated_rating FROM problems WHERE contest_id = 2254 AND problem_index = 'A'")
+    .get() as { estimated_rating: number | null };
+  assert.equal(rowA.estimated_rating, 2000);
+  db.close();
+});
+
+test("stale empty rating-changes cache is retried so estimates can fill in", async () => {
+  const db = createTestDb();
+  seedFinishedContest(db, 2255, "FINISHED", true);
+  seedUnratedProblem(db, 2255, "A");
+
+  const stale = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+  db.prepare(
+    `
+    INSERT INTO contest_rating_changes_cache (contest_id, raw_json, fetched_at)
+    VALUES (2255, '[]', @stale)
+  `,
+  ).run({ stale });
+
+  const client = new FakeClient();
+  const updated = await estimateMissingProblemRatings(db, client as never);
+  assert.equal(updated, 1);
+  assert.equal(client.ratingChangesCalls, 1);
+
+  const row = db
+    .prepare("SELECT estimated_rating FROM problems WHERE contest_id = 2255 AND problem_index = 'A'")
+    .get() as { estimated_rating: number | null };
+  assert.equal(row.estimated_rating, 2000);
+  db.close();
+});
+
+test("fresh empty rating-changes cache is not refetched every estimate pass", async () => {
+  const db = createTestDb();
+  seedFinishedContest(db, 2256, "FINISHED", true);
+  seedUnratedProblem(db, 2256, "A");
+
+  db.prepare(
+    `
+    INSERT INTO contest_rating_changes_cache (contest_id, raw_json, fetched_at)
+    VALUES (2256, '[]', @fresh)
+  `,
+  ).run({ fresh: new Date().toISOString() });
+
+  const client = new FakeClient();
+  const updated = await estimateMissingProblemRatings(db, client as never);
+  assert.equal(updated, 0);
+  assert.equal(client.ratingChangesCalls, 0);
+  assert.equal(client.standingsCalls, 0);
+  db.close();
+});
