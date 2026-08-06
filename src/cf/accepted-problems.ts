@@ -20,6 +20,18 @@ export const isRegularOfficialProblem = (
   return contestsById.has(problem.contestId);
 };
 
+/**
+ * Codeforces clears `verdict` to null while system-testing a submission that already
+ * passed pretests (`testset: "TESTS"`). Treat those as accepted so Problems stays in
+ * sync with contest standings / in-contest pills during SYSTEM_TEST. Definitive
+ * failures (WA/TLE/…) replace the null verdict and drop out naturally.
+ */
+export const isAcceptedSubmission = (submission: CfSubmission): boolean => {
+  if (submission.verdict === "OK" || submission.verdict === "PRETESTS_PASSED") return true;
+  if (submission.verdict !== undefined && submission.verdict !== null) return false;
+  return submission.testset === "TESTS";
+};
+
 export const acceptedProblemsFromSubmissions = (
   submissions: CfSubmission[],
   contestsById: Map<number, CfContest>,
@@ -27,7 +39,7 @@ export const acceptedProblemsFromSubmissions = (
   const accepted = new Map<string, AcceptedProblem>();
 
   for (const submission of submissions) {
-    if (submission.verdict !== "OK") continue;
+    if (!isAcceptedSubmission(submission)) continue;
     if (!isRegularOfficialProblem(submission.problem, contestsById)) continue;
 
     const contestId = submission.problem.contestId;

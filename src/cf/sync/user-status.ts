@@ -4,6 +4,7 @@ import { shouldRefreshProblemMetadata, shouldSyncCatalog } from "../../db/querie
 import {
   acceptedProblemsFromSubmissions,
   expandAcceptedProblemsByCanonicalId,
+  isAcceptedSubmission,
   problemKey,
   type AcceptedProblem,
 } from "../accepted-problems.js";
@@ -41,7 +42,7 @@ const ensureAcceptedProblemsExist = (
   const acceptedProblems = new Map<string, CfSubmission["problem"]>();
   for (const submission of submissions) {
     const contestId = submission.problem.contestId;
-    if (submission.verdict !== "OK" || typeof contestId !== "number") continue;
+    if (!isAcceptedSubmission(submission) || typeof contestId !== "number") continue;
     const key = problemKey(contestId, submission.problem.index);
     if (accepted.has(key)) acceptedProblems.set(key, submission.problem);
   }
@@ -399,6 +400,9 @@ export const syncUserStatus = async (
     }
 
     accepted = expandAcceptedProblemsByCanonicalId(db, exactAccepted);
+    // Hydration may have refreshed start/duration/phase from standings into SQLite;
+    // reload so submission-fallback pill recompute uses that timing, not sync-start stubs.
+    contestsById = loadContestsById(db);
     recomputeAllExistingUpsolves(db, userId, contestsById, accepted);
 
     const refreshNote = refreshContestIds.length > 0

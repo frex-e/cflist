@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { problemKey, type AcceptedProblem } from "../src/cf/accepted-problems.js";
 import { CodeforcesClient } from "../src/cf/client.js";
 import { runContestSyncQueue, syncState, syncUserStatus } from "../src/cf/sync.js";
+import { recomputeExistingUpsolvesForUser } from "../src/cf/sync/contest-hydration.js";
 import { enqueueContestHydrationJobs } from "../src/cf/sync/contest-queue.js";
 import type { CfContest, CfProblemset, CfRatingChange, CfStandings, CfSubmission } from "../src/cf/types.js";
 import { migrate } from "../src/db/migrate.js";
@@ -1368,4 +1370,235 @@ test("contest queue reclaims stale running jobs after restart", async () => {
     syncState.userRunning.clear();
     syncState.contestQueueRunning = false;
   }
+});
+
+class SystemTestNullVerdictClient extends SubmissionOnlyClient {
+  async contests(): Promise<CfContest[]> {
+    return [
+      {
+        id: 100,
+        name: "Codeforces Round 100 (Div. 3)",
+        phase: "SYSTEM_TEST",
+        startTimeSeconds: 1000,
+        durationSeconds: 7200,
+      },
+    ];
+  }
+
+  async problemset(): Promise<CfProblemset> {
+    return {
+      problems: [
+        { contestId: 100, index: "A", name: "A", tags: [] },
+        { contestId: 100, index: "B", name: "B", tags: [] },
+      ],
+      problemStatistics: [
+        { contestId: 100, index: "A", solvedCount: 10 },
+        { contestId: 100, index: "B", solvedCount: 5 },
+      ],
+    };
+  }
+
+  async userStatus(): Promise<CfSubmission[]> {
+    return [
+      {
+        id: 1,
+        contestId: 100,
+        creationTimeSeconds: 1200,
+        verdict: undefined,
+        testset: "TESTS",
+        passedTestCount: 4,
+        problem: { contestId: 100, index: "A", name: "A", tags: [] },
+      },
+      {
+        id: 2,
+        contestId: 100,
+        creationTimeSeconds: 1500,
+        verdict: "OK",
+        testset: "TESTS",
+        passedTestCount: 10,
+        problem: { contestId: 100, index: "B", name: "B", tags: [] },
+      },
+    ];
+  }
+
+  async contestStandings(_contestId = 100): Promise<CfStandings> {
+    this.standingsCalls += 1;
+    return {
+      contest: {
+        id: 100,
+        name: "Codeforces Round 100 (Div. 3)",
+        phase: "SYSTEM_TEST",
+        startTimeSeconds: 1000,
+        durationSeconds: 7200,
+      },
+      problems: [
+        { contestId: 100, index: "A", name: "A", tags: [] },
+        { contestId: 100, index: "B", name: "B", tags: [] },
+      ],
+      // Out-of-competition participants are absent from public standings.
+      rows: [],
+    };
+  }
+}
+
+test("user sync keeps system-testing accepts on problems and contest pills", async () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+  insertUser(db);
+  syncState.catalogRunning = false;
+  syncState.userRunning.clear();
+  syncState.contestQueueRunning = false;
+
+  try {
+    const client = new SystemTestNullVerdictClient();
+    await syncUserStatus(db, userId, cfHandle, client as unknown as CodeforcesClient);
+
+    const statusRows = db
+      .prepare(
+        `
+        SELECT contest_id, problem_index
+        FROM user_problem_status
+        ORDER BY problem_index
+      `,
+      )
+      .all() as { contest_id: number; problem_index: string }[];
+    const pillRows = db
+      .prepare(
+        `
+        SELECT problem_index, solved_in_contest, upsolved, points
+        FROM user_contest_problem_results
+        ORDER BY problem_index
+      `,
+      )
+      .all() as {
+        problem_index: string;
+        solved_in_contest: number;
+        upsolved: number;
+        points: number | null;
+      }[];
+    const phase = db.prepare("SELECT phase FROM contests WHERE id = 100").get() as { phase: string };
+
+    assert.deepEqual(statusRows.map((row) => ({ ...row })), [
+      { contest_id: 100, problem_index: "A" },
+      { contest_id: 100, problem_index: "B" },
+    ]);
+    assert.deepEqual(pillRows.map((row) => ({ ...row })), [
+      { problem_index: "A", solved_in_contest: 1, upsolved: 0, points: null },
+      { problem_index: "B", solved_in_contest: 1, upsolved: 0, points: null },
+    ]);
+    assert.equal(phase.phase, "SYSTEM_TEST");
+  } finally {
+    db.close();
+    syncState.userRunning.clear();
+    syncState.contestQueueRunning = false;
+  }
+});
+
+test("submission-fallback recompute keeps pills when contest window is unknown", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+  insertUser(db);
+
+  db.prepare(
+    `
+    INSERT INTO contests (id, name, start_time_seconds, raw_json, updated_at)
+    VALUES (100, 'Stub Round', 1000, '{}', '2026-01-01T00:00:00.000Z')
+  `,
+  ).run();
+  db.prepare(
+    `
+    INSERT INTO problems (
+      contest_id, problem_index, name, tags_json, url, raw_json, updated_at, canonical_id
+    ) VALUES (
+      100, 'A', 'A', '[]', 'https://codeforces.com/contest/100/problem/A', '{}',
+      '2026-01-01T00:00:00.000Z', @canonicalId
+    )
+  `,
+  ).run({ canonicalId: randomUUID() });
+  db.prepare(
+    `
+    INSERT INTO user_contest_results (user_id, contest_id, last_checked_at)
+    VALUES (@userId, 100, '2026-01-01T00:00:00.000Z')
+  `,
+  ).run({ userId });
+  db.prepare(
+    `
+    INSERT INTO user_contest_problem_results (
+      user_id, contest_id, problem_index, points, solved_in_contest, upsolved,
+      best_submission_time_seconds
+    ) VALUES (
+      @userId, 100, 'A', NULL, 1, 0, 200
+    )
+  `,
+  ).run({ userId });
+
+  const accepted = new Map<string, AcceptedProblem>([
+    [
+      problemKey(100, "A"),
+      {
+        contestId: 100,
+        problemIndex: "A",
+        firstSubmissionId: 1,
+        firstAcceptedAtSeconds: 1200,
+        acceptedCount: 1,
+      },
+    ],
+  ]);
+
+  // Stub contest: start known, duration missing — must not wipe hydrated greens.
+  recomputeExistingUpsolvesForUser(
+    db,
+    userId,
+    100,
+    { id: 100, name: "Stub Round", startTimeSeconds: 1000 },
+    accepted,
+  );
+
+  const afterStub = db
+    .prepare(
+      `
+      SELECT solved_in_contest, upsolved, best_submission_time_seconds
+      FROM user_contest_problem_results
+      WHERE contest_id = 100 AND problem_index = 'A'
+    `,
+    )
+    .get() as {
+      solved_in_contest: number;
+      upsolved: number;
+      best_submission_time_seconds: number | null;
+    };
+  assert.deepEqual(
+    { ...afterStub },
+    { solved_in_contest: 1, upsolved: 0, best_submission_time_seconds: 200 },
+  );
+
+  // With full timing and no acceptance, fallback pills clear as expected.
+  recomputeExistingUpsolvesForUser(
+    db,
+    userId,
+    100,
+    { id: 100, name: "Stub Round", startTimeSeconds: 1000, durationSeconds: 7200 },
+    new Map(),
+  );
+  const afterClear = db
+    .prepare(
+      `
+      SELECT solved_in_contest, upsolved, best_submission_time_seconds
+      FROM user_contest_problem_results
+      WHERE contest_id = 100 AND problem_index = 'A'
+    `,
+    )
+    .get() as {
+      solved_in_contest: number;
+      upsolved: number;
+      best_submission_time_seconds: number | null;
+    };
+  assert.deepEqual(
+    { ...afterClear },
+    { solved_in_contest: 0, upsolved: 0, best_submission_time_seconds: null },
+  );
+
+  db.close();
 });

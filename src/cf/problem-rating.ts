@@ -101,6 +101,10 @@ const LIVE_OR_PENDING_PHASES = new Set([
   "SYSTEM_TEST",
 ]);
 
+export const isLiveOrPendingContestPhase = (phase: string | null | undefined): boolean => {
+  return phase !== undefined && phase !== null && LIVE_OR_PENDING_PHASES.has(phase);
+};
+
 export const isContestEligibleForProblemRatingEstimate = (
   contest: CfContest | undefined,
   nowSeconds: number = Math.floor(Date.now() / 1000),
@@ -110,7 +114,7 @@ export const isContestEligibleForProblemRatingEstimate = (
   const endTime = contestEndTime(contest);
   if (endTime === undefined || endTime > nowSeconds) return false;
 
-  if (contest.phase && LIVE_OR_PENDING_PHASES.has(contest.phase)) return false;
+  if (isLiveOrPendingContestPhase(contest.phase)) return false;
   if (contest.phase && contest.phase !== "FINISHED") return false;
 
   return true;

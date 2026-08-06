@@ -9,7 +9,7 @@ References:
 
 - `contest.list?gym=false`: official non-gym contest metadata.
 - `problemset.problems`: official regular problem list and solved counts.
-- `user.status?handle=<account cfHandle>`: accepted submissions for per-account solved status and upsolve detection.
+- `user.status?handle=<account cfHandle>`: accepted submissions for per-account solved status and upsolve detection. While system tests run, CF may null out `verdict` on `testset: "TESTS"` submissions; those still count as accepted until a definitive failure appears.
 - `user.rating?handle=<account cfHandle>`: rated contest history for rank and official rating deltas.
 - `contest.ratingChanges?contestId=<id>`: rated participant ranks/ratings used to estimate per-contest performance.
 - `contest.standings?contestId=<id>`: full public standings (problems + every participant row) for score, penalty, participant type, and per-problem contest results.

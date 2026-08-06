@@ -1,5 +1,6 @@
 import type { Db } from "../../db/connection.js";
 import { config } from "../../config.js";
+import { isLiveOrPendingContestPhase } from "../problem-rating.js";
 import type { CfRatingChange } from "../types.js";
 import { invalidateContestCaches } from "./cache.js";
 
@@ -114,6 +115,23 @@ export const invalidateContestCachesForContests = (
   }
 };
 
+export const contestsInLiveOrPendingPhase = (db: Db, userId: string): number[] => {
+  const rows = db
+    .prepare(
+      `
+      SELECT ucr.contest_id AS contest_id, c.phase AS phase
+      FROM user_contest_results ucr
+      JOIN contests c ON c.id = ucr.contest_id
+      WHERE ucr.user_id = @userId
+    `,
+    )
+    .all({ userId }) as { contest_id: number; phase: string | null }[];
+
+  return rows
+    .filter((row) => isLiveOrPendingContestPhase(row.phase))
+    .map((row) => row.contest_id);
+};
+
 export const collectContestsNeedingRefresh = (
   db: Db,
   userId: string,
@@ -123,6 +141,8 @@ export const collectContestsNeedingRefresh = (
   const refreshContestIds = new Set<number>([
     ...detectContestCorrections(db, userId, ratingsByContestId),
     ...contestsWithStaleCache(db, userId, sortedContestIds),
+    // Keep pills aligned with standings while system tests rewrite verdicts.
+    ...contestsInLiveOrPendingPhase(db, userId),
   ]);
   return [...refreshContestIds];
 };
