@@ -111,15 +111,19 @@ const recomputeExistingUpsolves = (
       continue;
     }
 
+    // Without a known contest window we cannot tell in-contest vs upsolve. Leave
+    // hydrated pills alone rather than clearing them from a stub/stale contest row.
+    if (contest?.startTimeSeconds === undefined || endTime === undefined) {
+      continue;
+    }
+
     const acceptedDuringContest =
       firstAccepted !== undefined
-      && contest?.startTimeSeconds !== undefined
-      && endTime !== undefined
       && firstAccepted.firstAcceptedAtSeconds >= contest.startTimeSeconds
       && firstAccepted.firstAcceptedAtSeconds <= endTime;
     const solvedInContest = acceptedDuringContest ? 1 : 0;
     const upsolved = isUpsolved(solvedInContest, firstAccepted, endTime);
-    const bestSubmissionTimeSeconds = acceptedDuringContest && contest?.startTimeSeconds !== undefined
+    const bestSubmissionTimeSeconds = acceptedDuringContest
       ? firstAccepted!.firstAcceptedAtSeconds - contest.startTimeSeconds
       : null;
     updateFromAccepted.run({

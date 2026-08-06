@@ -400,6 +400,9 @@ export const syncUserStatus = async (
     }
 
     accepted = expandAcceptedProblemsByCanonicalId(db, exactAccepted);
+    // Hydration may have refreshed start/duration/phase from standings into SQLite;
+    // reload so submission-fallback pill recompute uses that timing, not sync-start stubs.
+    contestsById = loadContestsById(db);
     recomputeAllExistingUpsolves(db, userId, contestsById, accepted);
 
     const refreshNote = refreshContestIds.length > 0
