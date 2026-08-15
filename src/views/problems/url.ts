@@ -39,6 +39,26 @@ export const problemListQuery = (filters: ProblemFilters): string => {
   return url.includes("?") ? url.slice(url.indexOf("?") + 1) : "";
 };
 
+const requestUrl = (value: string): URL => new URL(value, "http://cflist.local");
+
+export const resolveProblemFilterParams = (
+  requestUrlValue: string,
+  savedQuery: string | undefined,
+): URLSearchParams => {
+  const url = requestUrl(requestUrlValue);
+  if (url.searchParams.get("default") === "0" || url.search) return url.searchParams;
+  return savedQuery ? new URLSearchParams(savedQuery) : url.searchParams;
+};
+
+export const defaultProblemsRedirect = (
+  requestUrlValue: string,
+  savedQuery: string | undefined,
+): string | undefined => {
+  const url = requestUrl(requestUrlValue);
+  if (url.search || !savedQuery) return undefined;
+  return `/problems?${savedQuery}`;
+};
+
 export const fragmentUrl = (url: string, extra?: Record<string, string>): string =>
   buildFragmentUrl("/problems/fragment", url, extra);
 

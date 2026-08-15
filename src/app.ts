@@ -4,7 +4,7 @@ import type { Context } from "hono";
 import { createAuth, emailAuthEnabled, githubAuthEnabled, needsCfHandle, type AuthSession, type AuthUser } from "./auth.js";
 import type { Db } from "./db/connection.js";
 import { config } from "./config.js";
-import { getDefaultFilterQuery, getManualUserSyncCooldown } from "./db/queries.js";
+import { getManualUserSyncCooldown } from "./db/queries.js";
 import { startUserSyncInBackground, type SyncableUser } from "./cf/sync.js";
 import { layout, configureLayoutAuth } from "./views/layout.js";
 import { registerAuthRoutes } from "./routes/auth.js";
@@ -221,15 +221,6 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
     });
   };
 
-  const defaultFilterParams = (userId: string, requestUrl: string): URLSearchParams | undefined => {
-    const url = new URL(requestUrl);
-    if (url.searchParams.get("default") === "0") return url.searchParams;
-    if (url.search) return undefined;
-
-    const query = getDefaultFilterQuery(db, userId);
-    return query ? new URLSearchParams(query) : undefined;
-  };
-
   const maybeStartPageSync = (user: SyncableUser): boolean => {
     if (appConfig.skipInitialSync) return false;
     if (!user.cfHandle?.trim()) return false;
@@ -270,7 +261,6 @@ export const createApp = (db: Db, appConfig: AppConfig): Hono<{ Variables: AppVa
   registerProblemsRoutes(app, {
     db,
     requireUser: requireCompleteUser,
-    defaultFilterParams,
     maybeStartPageSync,
   });
 

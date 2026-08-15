@@ -12,7 +12,9 @@ When adding or changing a visible UI element, manually test it in the running ap
 - Rating filter uses sliders backed by hidden `minRating` / `maxRating` fields; changes update hidden GET fields and trigger HTMX filter refresh. Slider track extends one step past the rounded catalog min/max so those endpoints stay selectable; thumbs on the outer steps mean Any (param omitted). Irregular estimates are snapped to 100-step bounds for the track. Any active min/max bound excludes problems with no official rating and no estimate (`COALESCE` is null).
 - Tag mode defaults to `any`; `tagMode=all` is only included when explicitly selected.
 - Sort direction is URL-backed through `sortDirection=asc|desc` (asc/desc toggle button).
-- Bare `/problems` applies the signed-in user's saved default filters when set. Explicit query params win.
+- Bare `/problems` redirects to the signed-in user's saved default filter query when set, so the address bar matches the form and list. Explicit query params win.
+- `/problems/fragment` applies the same saved defaults when the request has no query params (sync completion used to refresh from a bare URL and drop them).
+- After user sync, the Problems list refresh serializes the visible filter form rather than `window.location.search`, so SSR-applied checkbox defaults are not dropped while the URL is still `/problems`.
 - `/problems?default=0` bypasses saved defaults; Reset uses it so an existing default can be overwritten or cleared.
 - Default filter saves must parse repeated form fields with `parseBody({ all: true })` so multi-select groups (`division`, `tags`) are preserved.
 

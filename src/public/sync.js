@@ -4,9 +4,18 @@
   let lastContestJobsPending = null;
   let userSyncRequested = false;
 
+  const problemsFragmentSearch = () => {
+    const form = document.querySelector("form.filters");
+    if (form instanceof HTMLFormElement) {
+      const query = new URLSearchParams(new FormData(form)).toString();
+      return query ? `?${query}` : "";
+    }
+    return window.location.search;
+  };
+
   const refreshProblems = () => {
     if (!document.querySelector("#problem-list")) return;
-    const fragmentUrl = `/problems/fragment${window.location.search}`;
+    const fragmentUrl = `/problems/fragment${problemsFragmentSearch()}`;
     window.htmx.ajax("GET", fragmentUrl, {
       target: "#problem-list",
       swap: "outerHTML",
