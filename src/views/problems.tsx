@@ -34,7 +34,12 @@ const Option = (props: { value: string | number; label: string; selected?: boole
   );
 };
 
-export { problemListQuery, problemListUrl } from "./problems/url.js";
+export {
+  defaultProblemsRedirect,
+  problemListQuery,
+  problemListUrl,
+  resolveProblemFilterParams,
+} from "./problems/url.js";
 
 export const problemSummaryText = ({ result, filters }: ProblemsPageOptions): string => {
   return `${formatNumber(result.total)} matched, ${formatNumber(result.solved)} solved, ${formatNumber(result.skipped)} skipped, ${formatNumber(result.unsolved)} unsolved for ${filters.cfHandle}`;

@@ -77,6 +77,40 @@ const withSeededApp = async (
   }
 };
 
+const seedDiv3Problem = (db: DatabaseSync): void => {
+  db.prepare(
+    `
+    INSERT INTO problems (
+      contest_id,
+      problem_index,
+      name,
+      rating,
+      solved_count,
+      tags_json,
+      url,
+      raw_json,
+      updated_at,
+      canonical_id
+    ) VALUES (2, 'A', 'Div3 Only Problem', 800, 10, '[]', 'https://codeforces.com/problemset/problem/2/A', '{}', '2026-01-01T00:00:00.000Z', @canonicalId)
+  `,
+  ).run({ canonicalId: randomUUID() });
+};
+
+const followProblems = async (
+  app: ReturnType<typeof createApp>,
+  cookie: string,
+  path = "/problems",
+): Promise<{ location?: string; status: number; html: string }> => {
+  const response = await app.request(path, { headers: { cookie } });
+  if (response.status !== 302) {
+    return { status: response.status, html: await response.text() };
+  }
+  const location = response.headers.get("location") ?? undefined;
+  assert.ok(location);
+  const page = await app.request(location, { headers: { cookie } });
+  return { location, status: page.status, html: await page.text() };
+};
+
 const signUp = async (
   app: ReturnType<typeof createApp>,
   db: DatabaseSync,
@@ -253,17 +287,16 @@ test("bare problems page uses saved default filters when no query params are pre
       body: new URLSearchParams({ solved: "unsolved" }).toString(),
     });
 
-    const defaultResponse = await app.request("/problems", {
-      headers: { cookie: authCookie },
-    });
+    const defaultResponse = await followProblems(app, authCookie);
     const explicitResponse = await app.request("/problems?solved=all", {
       headers: { cookie: authCookie },
     });
 
-    const defaultHtml = await defaultResponse.text();
+    const defaultHtml = defaultResponse.html;
     const explicitHtml = await explicitResponse.text();
 
     assert.equal(defaultResponse.status, 200);
+    assert.equal(defaultResponse.location, "/problems?solved=unsolved");
     assert.match(defaultHtml, /<option value="unsolved" selected="">Unsolved<\/option>/);
     assert.match(explicitHtml, /<option value="all" selected="">All<\/option>/);
   });
@@ -293,12 +326,11 @@ test("default filter save works from the problems page", async () => {
     assert.equal(saveResponse.status, 200);
     assert.equal(await saveResponse.text(), "Default saved");
 
-    const defaultResponse = await app.request("/problems", {
-      headers: { cookie: authCookie },
-    });
-    const defaultHtml = await defaultResponse.text();
+    const defaultResponse = await followProblems(app, authCookie);
+    const defaultHtml = defaultResponse.html;
 
     assert.equal(defaultResponse.status, 200);
+    assert.equal(defaultResponse.location, "/problems?solved=unsolved");
     assert.match(defaultHtml, /<option value="unsolved" selected="">Unsolved<\/option>/);
   });
 });
@@ -327,12 +359,11 @@ test("default filter save overwrites an existing default", async () => {
     });
     assert.equal(overwrite.status, 200);
 
-    const defaultResponse = await app.request("/problems", {
-      headers: { cookie: authCookie },
-    });
-    const defaultHtml = await defaultResponse.text();
+    const defaultResponse = await followProblems(app, authCookie);
+    const defaultHtml = defaultResponse.html;
 
     assert.equal(defaultResponse.status, 200);
+    assert.equal(defaultResponse.location, "/problems?solved=solved");
     assert.match(defaultHtml, /<option value="solved" selected="">Solved<\/option>/);
     assert.doesNotMatch(defaultHtml, /<option value="unsolved" selected="">Unsolved<\/option>/);
   });
@@ -354,12 +385,12 @@ test("default filter save preserves multiple selected divisions", async () => {
     });
     assert.equal(saveResponse.status, 200);
 
-    const defaultResponse = await app.request("/problems", {
-      headers: { cookie: authCookie },
-    });
-    const defaultHtml = await defaultResponse.text();
+    const defaultResponse = await followProblems(app, authCookie);
+    const defaultHtml = defaultResponse.html;
 
     assert.equal(defaultResponse.status, 200);
+    assert.match(defaultResponse.location ?? "", /division=Div\.\+2/);
+    assert.match(defaultResponse.location ?? "", /division=Div\.\+3/);
     assert.match(defaultHtml, /name="division" value="Div\. 2" checked=""/);
     assert.match(defaultHtml, /name="division" value="Div\. 3" checked=""/);
   });
@@ -404,6 +435,70 @@ test("reset bypasses saved defaults so they can be cleared", async () => {
 
     assert.equal(defaultResponse.status, 200);
     assert.match(defaultHtml, /<option value="all" selected="">All<\/option>/);
+  });
+});
+
+test("first problems load excludes Div. 3 when it is unchecked in the saved default", async () => {
+  await withSeededApp(async (app, db) => {
+    seedDiv3Problem(db);
+    const authCookie = await signUp(app, db);
+    const saveResponse = await app.request("/preferences/default-filters", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        cookie: authCookie,
+      },
+      body: new URLSearchParams([
+        ["division", "Div. 1"],
+        ["division", "Div. 1 + Div. 2"],
+        ["division", "Div. 2"],
+      ]).toString(),
+    });
+    assert.equal(saveResponse.status, 200);
+
+    const unfiltered = await app.request("/problems?default=0", { headers: { cookie: authCookie } });
+    const unfilteredHtml = await unfiltered.text();
+    assert.equal(unfiltered.status, 200);
+    assert.match(unfilteredHtml, /Test Problem/);
+    assert.match(unfilteredHtml, /Div3 Only Problem/);
+
+    const defaultResponse = await followProblems(app, authCookie);
+    assert.equal(defaultResponse.status, 200);
+    assert.match(defaultResponse.location ?? "", /division=Div\.\+1/);
+    assert.match(defaultResponse.location ?? "", /division=Div\.\+2/);
+    assert.doesNotMatch(defaultResponse.location ?? "", /Div\.\+3/);
+    assert.match(defaultResponse.html, /name="division" value="Div\. 2" checked=""/);
+    assert.doesNotMatch(defaultResponse.html, /name="division" value="Div\. 3" checked=""/);
+    assert.match(defaultResponse.html, /Test Problem/);
+    assert.doesNotMatch(defaultResponse.html, /Div3 Only Problem/);
+  });
+});
+
+test("problems fragment without query params applies saved division defaults", async () => {
+  await withSeededApp(async (app, db) => {
+    seedDiv3Problem(db);
+    const authCookie = await signUp(app, db);
+    const saveResponse = await app.request("/preferences/default-filters", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        cookie: authCookie,
+      },
+      body: new URLSearchParams([
+        ["division", "Div. 1"],
+        ["division", "Div. 1 + Div. 2"],
+        ["division", "Div. 2"],
+      ]).toString(),
+    });
+    assert.equal(saveResponse.status, 200);
+
+    const fragment = await app.request("/problems/fragment", { headers: { cookie: authCookie } });
+    const fragmentHtml = await fragment.text();
+    assert.equal(fragment.status, 200);
+    assert.match(fragmentHtml, /Test Problem/);
+    assert.doesNotMatch(fragmentHtml, /Div3 Only Problem/);
+    assert.match(fragment.headers.get("hx-push-url") ?? "", /division=Div\.\+2/);
+    assert.doesNotMatch(fragment.headers.get("hx-push-url") ?? "", /Div\.\+3/);
   });
 });
 

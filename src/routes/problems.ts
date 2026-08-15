@@ -2,6 +2,7 @@ import type { Context, Hono } from "hono";
 import type { AuthUser, AuthSession } from "../auth.js";
 import type { Db } from "../db/connection.js";
 import {
+  getDefaultFilterQuery,
   getFilterOptions,
   getProblem,
   listProblems,
@@ -14,12 +15,14 @@ import { currentPageFromRequest } from "../http/current-page.js";
 import { firstString, formToSearchParams, parseContestId } from "../http/forms.js";
 import { buildSyncPanelOptions } from "../http/sync-panel.js";
 import {
+  defaultProblemsRedirect,
   problemListQuery,
   problemListUrl,
   problemSummaryOutOfBand,
   problemsAppendFragment,
   problemsListFragment,
   problemsPage,
+  resolveProblemFilterParams,
 } from "../views/problems.js";
 
 type AppVariables = {
@@ -32,7 +35,6 @@ type AppContext = Context<{ Variables: AppVariables }>;
 type ProblemsRouteDeps = {
   db: Db;
   requireUser: (c: AppContext) => AuthUser | Response;
-  defaultFilterParams: (userId: string, requestUrl: string) => URLSearchParams | undefined;
   maybeStartPageSync: (user: AuthUser) => boolean;
 };
 
@@ -45,15 +47,18 @@ export const registerProblemsRoutes = (
   app: Hono<{ Variables: AppVariables }>,
   deps: ProblemsRouteDeps,
 ): void => {
-  const { db, requireUser, defaultFilterParams, maybeStartPageSync } = deps;
+  const { db, requireUser, maybeStartPageSync } = deps;
+
+  const filterParamsFor = (userId: string, requestUrl: string): URLSearchParams => {
+    return resolveProblemFilterParams(requestUrl, getDefaultFilterQuery(db, userId));
+  };
 
   const problemListOptionsFor = (
     user: AuthUser,
     requestUrl: string,
-    params?: URLSearchParams,
     autoSyncStarted = false,
   ) => {
-    params ??= new URL(requestUrl).searchParams;
+    const params = filterParamsFor(user.id, requestUrl);
     const filters = normalizeFilters(params, user.id, user.cfHandle);
     const result = listProblems(db, filters);
     const options = getFilterOptions(db);
@@ -78,8 +83,10 @@ export const registerProblemsRoutes = (
   app.get("/problems", (c) => {
     const user = requireUser(c);
     if (user instanceof Response) return user;
+    const redirectTo = defaultProblemsRedirect(c.req.url, getDefaultFilterQuery(db, user.id));
+    if (redirectTo) return c.redirect(redirectTo);
     const autoSyncStarted = maybeStartPageSync(user);
-    return c.html(problemsPage(problemListOptionsFor(user, c.req.url, defaultFilterParams(user.id, c.req.url), autoSyncStarted)));
+    return c.html(problemsPage(problemListOptionsFor(user, c.req.url, autoSyncStarted)));
   });
 
   app.get("/problems/fragment", (c) => {
