@@ -13,7 +13,12 @@ import { getCodeforcesClient } from "../shared-client.js";
 import type { CfRatingChange, CfContest, CfSubmission } from "../types.js";
 import { upsertProblemWithTags } from "../../db/writes/problems.js";
 import { backfillUserContestPerformances } from "./cache.js";
-import { collectContestsNeedingRefresh, invalidateContestCachesForContests } from "./contest-corrections.js";
+import {
+  clearVanishedContestRatings,
+  collectContestsNeedingRefresh,
+  detectVanishedRatedContests,
+  invalidateContestCachesForContests,
+} from "./contest-corrections.js";
 import { refreshProblemMetadata, syncCatalog } from "./catalog.js";
 import { getPairedContestId } from "./canonical-problems.js";
 import { drainContestSyncJobs, enqueueContestHydrationJobs } from "./contest-queue.js";
@@ -297,12 +302,15 @@ export const syncUserStatus = async (
 
     const sortedCandidateContestIds = [...candidateContestIds]
       .sort((a, b) => contestSortValue(contestsById.get(b), ratingsByContestId.get(b)) - contestSortValue(contestsById.get(a), ratingsByContestId.get(a)));
+    // Detect vanished rows before clearing so they still look rated to the TTL/live union.
+    const vanishedContestIds = detectVanishedRatedContests(db, userId, ratingsByContestId);
     const refreshContestIds = collectContestsNeedingRefresh(
       db,
       userId,
       ratingsByContestId,
       sortedCandidateContestIds,
     );
+    clearVanishedContestRatings(db, userId, vanishedContestIds);
     invalidateContestCachesForContests(db, userId, refreshContestIds);
     const refreshContestIdSet = new Set(refreshContestIds);
     const rankByContestId = new Map(sortedCandidateContestIds.map((contestId, rank) => [contestId, rank]));
@@ -423,6 +431,9 @@ export const syncUserStatus = async (
       skipContestIds: new Set(pendingHydration.map((row) => row.contestId)),
     });
 
+    const vanishNote = vanishedContestIds.length > 0
+      ? `; cleared ratings for ${vanishedContestIds.length} contest${vanishedContestIds.length === 1 ? "" : "s"} missing from Codeforces history`
+      : "";
     const refreshNote = refreshContestIds.length > 0
       ? `; refreshed ${refreshContestIds.length} contest${refreshContestIds.length === 1 ? "" : "s"} after Codeforces updates`
       : "";
@@ -434,7 +445,7 @@ export const syncUserStatus = async (
       db,
       syncRunId,
       "success",
-      `Synced ${accepted.size} solved problems and queued ${enqueuedContestResults + enqueuedPairedProbes} contest detail refreshes for ${cfHandle}${refreshNote}${estimateNote}.`,
+      `Synced ${accepted.size} solved problems and queued ${enqueuedContestResults + enqueuedPairedProbes} contest detail refreshes for ${cfHandle}${vanishNote}${refreshNote}${estimateNote}.`,
       now(),
     );
   } catch (error) {

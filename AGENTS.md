@@ -41,6 +41,7 @@ Detailed notes live in [`agents/`](./agents/README.md) by topic (Codeforces API,
 - Key app-owned user data by auth user id, not Codeforces handle.
 - Successful login records `lastLoginAt` only. Opening Problems or Contests (full page) starts one background user sync when the latest successful sync is older than `USER_SYNC_INTERVAL_MINUTES` (default 60). The server also syncs users who logged in within seven days once per 24 hours; there is no ongoing hourly user auto-sync.
 - Official problem `rating` wins when present; otherwise show clist-style `estimated_rating` (only after contest end + rating changes). Cap estimates at the max official rating tag. Shared Div. 1/Div. 2 placements use a combined-field estimate (same value on both rows). Never estimate during a live contest.
+- When `/user.rating` omits a contest that was stored as rated, clear that user's rating/delta/performance without re-hydrating standings; in-place old/new mismatches still invalidate and re-queue. Do not raise the standings TTL to cover unpublished rating history.
 - When adding a new feature or UI element, test it manually in the running app and take screenshots. Prefer screenshots over video; if a recording is needed, keep it short and compressed so it stays under artifact size limits. Sign in as the shared test account and sync real Codeforces data; do not inject fake rows into the DB just for the demo.
 - Run `npm test` after behavior changes.
 

@@ -1,4 +1,4 @@
-import type { Db } from "../../db/connection.js";
+import { transaction, type Db } from "../../db/connection.js";
 import { config } from "../../config.js";
 import { isLiveOrPendingContestPhase } from "../problem-rating.js";
 import type { CfRatingChange } from "../types.js";
@@ -11,12 +11,13 @@ type StoredContestResult = {
   new_rating: number | null;
 };
 
-export const detectContestCorrections = (
-  db: Db,
-  userId: string,
-  ratingsByContestId: Map<number, CfRatingChange>,
-): number[] => {
-  const storedRows = db
+export type ContestRatingDiffs = {
+  changed: number[];
+  vanished: number[];
+};
+
+const loadStoredContestResults = (db: Db, userId: string): StoredContestResult[] => {
+  return db
     .prepare(
       `
       SELECT contest_id, rank, old_rating, new_rating
@@ -25,11 +26,28 @@ export const detectContestCorrections = (
     `,
     )
     .all({ userId }) as StoredContestResult[];
+};
 
-  const correctedContestIds: number[] = [];
+export const detectContestRatingDiffs = (
+  db: Db,
+  userId: string,
+  ratingsByContestId: Map<number, CfRatingChange>,
+): ContestRatingDiffs => {
+  const storedRows = loadStoredContestResults(db, userId);
+  const changed: number[] = [];
+  const vanished: number[] = [];
+  // Empty `/user.rating` is treated as an API glitch, not a full-history wipe.
+  // Real rollbacks unpublish a suffix and still return earlier rated rounds.
+  const allowVanish = ratingsByContestId.size > 0;
+
   for (const stored of storedRows) {
     const apiChange = ratingsByContestId.get(stored.contest_id);
-    if (!apiChange) continue;
+    if (!apiChange) {
+      if (allowVanish && stored.new_rating !== null) {
+        vanished.push(stored.contest_id);
+      }
+      continue;
+    }
 
     // Compare ratings only. Standings `rank` and `/user.rating` rank often differ
     // for the same contest (rated vs full field), so rank mismatches are not a
@@ -38,11 +56,57 @@ export const detectContestCorrections = (
       apiChange.oldRating !== stored.old_rating
       || apiChange.newRating !== stored.new_rating
     ) {
-      correctedContestIds.push(stored.contest_id);
+      changed.push(stored.contest_id);
     }
   }
 
-  return correctedContestIds;
+  return { changed, vanished };
+};
+
+export const detectContestCorrections = (
+  db: Db,
+  userId: string,
+  ratingsByContestId: Map<number, CfRatingChange>,
+): number[] => detectContestRatingDiffs(db, userId, ratingsByContestId).changed;
+
+export const detectVanishedRatedContests = (
+  db: Db,
+  userId: string,
+  ratingsByContestId: Map<number, CfRatingChange>,
+): number[] => detectContestRatingDiffs(db, userId, ratingsByContestId).vanished;
+
+export const clearVanishedContestRatings = (
+  db: Db,
+  userId: string,
+  contestIds: Iterable<number>,
+): void => {
+  const ids = [...new Set(contestIds)];
+  if (ids.length === 0) return;
+
+  const clearRatings = db.prepare(`
+    UPDATE user_contest_results
+    SET
+      old_rating = NULL,
+      new_rating = NULL,
+      rating_delta = NULL,
+      performance = NULL
+    WHERE user_id = @userId AND contest_id = @contestId
+  `);
+  const deletePerformanceCache = db.prepare(`
+    DELETE FROM contest_performance_cache
+    WHERE user_id = @userId AND contest_id = @contestId
+  `);
+  const deleteRatingChangesCache = db.prepare(`
+    DELETE FROM contest_rating_changes_cache WHERE contest_id = @contestId
+  `);
+
+  transaction(db, () => {
+    for (const contestId of ids) {
+      clearRatings.run({ userId, contestId });
+      deletePerformanceCache.run({ userId, contestId });
+      deleteRatingChangesCache.run({ contestId });
+    }
+  });
 };
 
 const cacheFetchedAt = (
@@ -151,11 +215,14 @@ export const collectContestsNeedingRefresh = (
   ratingsByContestId: Map<number, CfRatingChange>,
   sortedContestIds: number[],
 ): number[] => {
+  const { changed, vanished } = detectContestRatingDiffs(db, userId, ratingsByContestId);
+  const vanishedSet = new Set(vanished);
   const refreshContestIds = new Set<number>([
-    ...detectContestCorrections(db, userId, ratingsByContestId),
+    ...changed,
     ...contestsWithStaleCache(db, userId, sortedContestIds),
     // Keep pills aligned with standings while system tests rewrite verdicts.
     ...contestsInLiveOrPendingPhase(db, userId),
   ]);
+  for (const contestId of vanishedSet) refreshContestIds.delete(contestId);
   return [...refreshContestIds];
 };
