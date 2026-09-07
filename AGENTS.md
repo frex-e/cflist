@@ -37,6 +37,7 @@ Detailed notes live in [`agents/`](./agents/README.md) by topic (Codeforces API,
 - Preserve URL-backed filters; interactive Problems/Contests UI requires JavaScript (HTMX + page scripts).
 - Codeforces solved status is authoritative; local manual solves and skips are additive.
 - Import contest-scoped problems from standings when `problemset.problems` omits them.
+- Copy catalog `solved_count` onto shared Div. 1/Div. 2 aliases (`problemset.problems` lists the shared task under one contest only). The Problems list also reads `MAX(solved_count)` per `canonical_id`.
 - If a submission-discovered contest lacks a matching standings row, keep rank/score blank but use accepted submissions for contest problem pills.
 - Key app-owned user data by auth user id, not Codeforces handle.
 - Successful login records `lastLoginAt` only. Opening Problems or Contests (full page) starts one background user sync when the latest successful sync is older than `USER_SYNC_INTERVAL_MINUTES` (default 60). The server also syncs users who logged in within seven days once per 24 hours; there is no ongoing hourly user auto-sync.

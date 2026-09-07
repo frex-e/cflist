@@ -230,6 +230,32 @@ export const linkCanonicalIdsByRoundPairs = (db: Db): void => {
       unifyCanonicalIds(db, targetId, partner.canonicalId);
     }
   }
+
+  propagateCanonicalSolvedCounts(db);
+};
+
+/**
+ * `problemset.problems` lists a shared Div. 1/Div. 2 task under one contest only.
+ * Standings-imported sibling rows would otherwise keep `solved_count` NULL forever.
+ * Copy the catalog max onto every placement that shares a `canonical_id`.
+ */
+export const propagateCanonicalSolvedCounts = (db: Db): void => {
+  db.prepare(
+    `
+    UPDATE problems
+    SET solved_count = (
+      SELECT MAX(sibling.solved_count)
+      FROM problems AS sibling
+      WHERE sibling.canonical_id = problems.canonical_id
+    )
+    WHERE EXISTS (
+      SELECT 1
+      FROM problems AS sibling
+      WHERE sibling.canonical_id = problems.canonical_id
+        AND sibling.solved_count IS NOT NULL
+    )
+    `,
+  ).run();
 };
 
 export const backfillCanonicalIds = (db: Db): void => {

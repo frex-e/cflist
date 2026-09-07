@@ -2,14 +2,15 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import type { CodeforcesClient } from "../src/cf/client.js";
-import { refreshProblemMetadata } from "../src/cf/sync/catalog.js";
+import { refreshProblemMetadata, syncCatalog } from "../src/cf/sync/catalog.js";
+import { syncState } from "../src/cf/sync/state.js";
 import {
   countProblemsNeedingMetadata,
   shouldRefreshProblemMetadata,
   shouldSyncCatalog,
 } from "../src/db/queries/catalog-sync.js";
 import { finishSyncRun, startSyncRun } from "../src/db/writes/sync-runs.js";
-import type { CfProblemset } from "../src/cf/types.js";
+import type { CfContest, CfProblemset } from "../src/cf/types.js";
 import { createTestDb } from "./helpers.js";
 
 const recentFinishedAt = new Date(Date.now() - 60_000).toISOString();
@@ -261,3 +262,158 @@ test("refreshProblemMetadata skips write when API still has no rating or tags", 
     db.close();
   }
 });
+
+class PairedDivisionCatalogClient {
+  solvedCount: number;
+
+  constructor(solvedCount = 13124) {
+    this.solvedCount = solvedCount;
+  }
+
+  async contests(): Promise<CfContest[]> {
+    return [
+      {
+        id: 2255,
+        name: "Codeforces Round 1116 (Div. 1)",
+        phase: "FINISHED",
+        startTimeSeconds: 1_786_286_100,
+        durationSeconds: 7200,
+      },
+      {
+        id: 2256,
+        name: "Codeforces Round 1116 (Div. 2)",
+        phase: "FINISHED",
+        startTimeSeconds: 1_786_286_100,
+        durationSeconds: 7200,
+      },
+    ];
+  }
+
+  async problemset(): Promise<CfProblemset> {
+    return {
+      problems: [
+        {
+          contestId: 2255,
+          index: "A",
+          name: "Hot Potatoes at the Fairy Warehouse",
+          rating: 1200,
+          tags: ["math"],
+        },
+        { contestId: 2256, index: "A", name: "Three Numbers on the Blackboard", rating: 800, tags: ["math"] },
+        { contestId: 2256, index: "B", name: "Domino Tiles", rating: 1000, tags: ["greedy"] },
+      ],
+      problemStatistics: [
+        { contestId: 2255, index: "A", solvedCount: this.solvedCount },
+        { contestId: 2256, index: "A", solvedCount: 24367 },
+        { contestId: 2256, index: "B", solvedCount: 16215 },
+      ],
+    };
+  }
+}
+
+const insertStandingsOnlySibling = (
+  db: ReturnType<typeof createTestDb>,
+  contestId: number,
+  problemIndex: string,
+  name: string,
+): void => {
+  db.prepare(
+    `
+    INSERT OR IGNORE INTO contests (
+      id, name, start_time_seconds, derived_family, derived_division, derived_label, raw_json, updated_at
+    ) VALUES (
+      @contestId, @contestName, 1786286100, 'Codeforces Round', 'Div. 2', @contestName, '{}', '2026-01-01T00:00:00.000Z'
+    )
+  `,
+  ).run({
+    contestId,
+    contestName: `Contest ${contestId}`,
+  });
+
+  db.prepare(
+    `
+    INSERT INTO problems (
+      contest_id, problem_index, name, rating, solved_count, tags_json, url, raw_json, updated_at, canonical_id
+    ) VALUES (
+      @contestId, @problemIndex, @name, 1200, NULL,
+      '["math"]', @url, '{}', '2026-01-01T00:00:00.000Z', @canonicalId
+    )
+  `,
+  ).run({
+    contestId,
+    problemIndex,
+    name,
+    url: `https://codeforces.com/contest/${contestId}/problem/${problemIndex}`,
+    canonicalId: randomUUID(),
+  });
+};
+
+test("catalog sync copies problemset solved counts onto omitted Div. 2 sibling placements", async () => {
+  const db = createTestDb();
+  syncState.catalogRunning = false;
+  syncState.catalogSyncPromise = null;
+
+  try {
+    insertStandingsOnlySibling(db, 2256, "C", "Hot Potatoes at the Fairy Warehouse");
+
+    await syncCatalog(db, new PairedDivisionCatalogClient() as unknown as CodeforcesClient);
+
+    const rows = db
+      .prepare(
+        `
+        SELECT contest_id AS contestId, problem_index AS problemIndex, solved_count AS solvedCount
+        FROM problems
+        ORDER BY contest_id, problem_index
+      `,
+      )
+      .all() as { contestId: number; problemIndex: string; solvedCount: number | null }[];
+
+    assert.equal(rows.length, 4);
+    assert.equal(rows[0]?.contestId, 2255);
+    assert.equal(rows[0]?.problemIndex, "A");
+    assert.equal(rows[0]?.solvedCount, 13124);
+    assert.equal(rows[1]?.contestId, 2256);
+    assert.equal(rows[1]?.problemIndex, "A");
+    assert.equal(rows[1]?.solvedCount, 24367);
+    assert.equal(rows[2]?.contestId, 2256);
+    assert.equal(rows[2]?.problemIndex, "B");
+    assert.equal(rows[2]?.solvedCount, 16215);
+    assert.equal(rows[3]?.contestId, 2256);
+    assert.equal(rows[3]?.problemIndex, "C");
+    assert.equal(rows[3]?.solvedCount, 13124);
+  } finally {
+    db.close();
+    syncState.catalogRunning = false;
+    syncState.catalogSyncPromise = null;
+  }
+});
+
+test("catalog sync refreshes copied sibling solved counts when problemset stats change", async () => {
+  const db = createTestDb();
+  syncState.catalogRunning = false;
+  syncState.catalogSyncPromise = null;
+
+  try {
+    insertStandingsOnlySibling(db, 2256, "C", "Hot Potatoes at the Fairy Warehouse");
+
+    await syncCatalog(db, new PairedDivisionCatalogClient(13124) as unknown as CodeforcesClient);
+    await syncCatalog(db, new PairedDivisionCatalogClient(14000) as unknown as CodeforcesClient);
+
+    const sibling = db
+      .prepare(
+        `
+        SELECT solved_count AS solvedCount
+        FROM problems
+        WHERE contest_id = 2256 AND problem_index = 'C'
+      `,
+      )
+      .get() as { solvedCount: number };
+
+    assert.equal(sibling.solvedCount, 14000);
+  } finally {
+    db.close();
+    syncState.catalogRunning = false;
+    syncState.catalogSyncPromise = null;
+  }
+});
+

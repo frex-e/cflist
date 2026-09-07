@@ -8,7 +8,7 @@ References:
 ## Endpoints
 
 - `contest.list?gym=false`: official non-gym contest metadata.
-- `problemset.problems`: official regular problem list and solved counts.
+- `problemset.problems`: official regular problem list and solved counts. Combined Div. 1/Div. 2 rounds list a shared task under **one** contest id (usually Div. 1); the other placement is omitted and must be imported from standings.
 - `user.status?handle=<account cfHandle>`: accepted submissions for per-account solved status and upsolve detection. While system tests run, CF may null out `verdict` on `testset: "TESTS"` submissions; those still count as accepted until a definitive failure appears.
 - `user.rating?handle=<account cfHandle>`: rated contest history for rank and official rating deltas.
 - `contest.ratingChanges?contestId=<id>`: rated participant ranks/ratings used to estimate per-contest performance.

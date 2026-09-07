@@ -13,11 +13,13 @@ import {
   syncActiveUsers,
   syncCatalog,
 } from "./cf/sync.js";
+import { propagateCanonicalSolvedCounts } from "./cf/sync/canonical-problems.js";
 
 validateProductionConfig();
 
 const db = openDb(config.dbPath);
 migrate(db);
+propagateCanonicalSolvedCounts(db);
 resetStaleUserSyncRuns(db);
 
 const publicRoot = process.env.PUBLIC_ROOT ?? "./src";

@@ -20,7 +20,7 @@ import {
   invalidateContestCachesForContests,
 } from "./contest-corrections.js";
 import { refreshProblemMetadata, syncCatalog } from "./catalog.js";
-import { getPairedContestId } from "./canonical-problems.js";
+import { getPairedContestId, propagateCanonicalSolvedCounts } from "./canonical-problems.js";
 import { drainContestSyncJobs, enqueueContestHydrationJobs } from "./contest-queue.js";
 import { recomputeExistingUpsolvesForUser } from "./contest-hydration.js";
 import { estimateMissingProblemRatings } from "./estimate-problem-ratings.js";
@@ -82,6 +82,7 @@ const ensureAcceptedProblemsExist = (
         problemsetName: problem.problemsetName ?? null,
       }, "standings");
     }
+    propagateCanonicalSolvedCounts(db);
   });
 };
 
