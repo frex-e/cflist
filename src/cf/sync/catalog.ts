@@ -10,7 +10,11 @@ import { classifyContest } from "../classify.js";
 import { CodeforcesClient } from "../client.js";
 import type { CfProblem } from "../types.js";
 import { getCodeforcesClient } from "../shared-client.js";
-import { linkCanonicalIdsByRoundPairs, refreshRoundPairs } from "./canonical-problems.js";
+import {
+  linkCanonicalIdsByRoundPairs,
+  propagateCanonicalSolvedCounts,
+  refreshRoundPairs,
+} from "./canonical-problems.js";
 import { estimateMissingProblemRatings } from "./estimate-problem-ratings.js";
 import { codeforcesProblemUrl, now } from "./helpers.js";
 import { syncState } from "./state.js";
@@ -207,6 +211,7 @@ const runProblemMetadataRefresh = async (db: Db, client: CodeforcesClient): Prom
         }, "catalog");
         updatedCount += 1;
       }
+      propagateCanonicalSolvedCounts(db);
     });
 
     const estimatedCount = await estimateMissingProblemRatings(db, client);

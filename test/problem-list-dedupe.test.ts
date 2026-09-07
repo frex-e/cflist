@@ -30,6 +30,7 @@ const insertProblem = (
   name: string,
   rating: number,
   canonicalId: string,
+  solvedCount: number | null = 100,
 ): void => {
   const tags = JSON.stringify(["graphs"]);
   db.prepare(
@@ -50,7 +51,7 @@ const insertProblem = (
       @problemIndex,
       @name,
       @rating,
-      100,
+      @solvedCount,
       @tags,
       @url,
       '{}',
@@ -63,6 +64,7 @@ const insertProblem = (
     problemIndex,
     name,
     rating,
+    solvedCount,
     tags,
     url: `https://codeforces.com/contest/${contestId}/problem/${problemIndex}`,
     canonicalId,
@@ -106,8 +108,8 @@ const withDb = (fn: (db: DatabaseSync) => void): void => {
   ).run();
 
   refreshRoundPairs(db);
-  insertProblem(db, 2219, "A", "Grid L", 1400, gridCanonicalId);
-  insertProblem(db, 2220, "C", "Grid L", 1400, gridCanonicalId);
+  insertProblem(db, 2219, "A", "Grid L", 1400, gridCanonicalId, 13124);
+  insertProblem(db, 2220, "C", "Grid L", 1400, gridCanonicalId, null);
   insertProblem(db, 2220, "D", "Different Problem", 1600, "22222222-2222-2222-2222-222222222222");
 
   try {
@@ -139,6 +141,7 @@ test("problem list collapses shared contest aliases into one displayed row", () 
     assert.equal(gridRows.length, 1);
     assert.equal(gridRows[0]?.contest_id, 2220);
     assert.equal(gridRows[0]?.problem_index, "C");
+    assert.equal(gridRows[0]?.solved_count, 13124);
     assert.equal(gridRows[0]?.cf_solved, 1);
     assert.equal(gridRows[0]?.effective_solved, 1);
 
@@ -154,6 +157,18 @@ test("problem list keeps the matching alias when filters narrow to one contest d
     assert.equal(result.total, 1);
     assert.equal(result.rows[0]?.contest_id, 2219);
     assert.equal(result.rows[0]?.problem_index, "A");
+    assert.equal(result.rows[0]?.solved_count, 13124);
+  });
+});
+
+test("problem list shows catalog solved counts on Div. 2 aliases even when only Div. 2 is filtered", () => {
+  withDb((db) => {
+    const result = listProblems(db, filters({ divisions: ["Div. 2"] }));
+    const gridRow = result.rows.find((row) => row.name === "Grid L");
+
+    assert.equal(gridRow?.contest_id, 2220);
+    assert.equal(gridRow?.problem_index, "C");
+    assert.equal(gridRow?.solved_count, 13124);
   });
 });
 

@@ -16,6 +16,7 @@ import {
   type ContestProblemResult,
 } from "../contest-results.js";
 import { calculateAndPersistPerformance } from "./cache.js";
+import { propagateCanonicalSolvedCounts } from "./canonical-problems.js";
 import { maybeEstimateProblemRatingsAfterHydration } from "./estimate-problem-ratings.js";
 import { codeforcesProblemUrl, hasHandle, loadContestsById, now } from "./helpers.js";
 
@@ -164,6 +165,7 @@ const importStandingsProblems = (
       }, "standings");
       knownProblems.add(problemKey(contestId, problem.index));
     }
+    propagateCanonicalSolvedCounts(db);
   });
 };
 

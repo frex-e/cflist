@@ -26,6 +26,7 @@ Problems list dedup uses `problems.canonical_id`, not rating/tags metadata.
 - **Catalog sync** (`problemset.problems`): each row gets a fresh UUID `canonical_id`.
 - **Standings import**: look up the paired round contest; if a row with the same `name` exists there, reuse its `canonical_id`; otherwise assign a new UUID.
 - **Round pairs**: Div. 1 + Div. 2 contests with the same `start_time_seconds` (`contest_round_pairs`, refreshed on catalog sync). Same `name` within a pair → shared `canonical_id` (linked after catalog upsert via `linkCanonicalIdsByRoundPairs`).
+- After linking, `propagateCanonicalSolvedCounts` copies `MAX(solved_count)` onto every row in the alias group. Catalog `problemset.problems` only includes one placement of a shared task, so the standings-imported sibling would otherwise stay NULL and never refresh. The same copy runs after metadata refresh, standings import, accepted-problem import, and once at process start (existing DBs).
 - Solo rounds (Global, Educational, unpaired Div. 2) keep one id per problem row.
 - If the partner contest is not hydrated yet, standings rows may get a new id until a later sync links them by name.
 - Contest history, CF URLs, `user_problem_status`, and `problem_tags` stay `(contest_id, problem_index)` scoped.

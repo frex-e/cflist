@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
   linkCanonicalIdsByRoundPairs,
+  propagateCanonicalSolvedCounts,
   refreshRoundPairs,
 } from "../src/cf/sync/canonical-problems.js";
 import { migrate } from "../src/db/migrate.js";
@@ -49,6 +50,7 @@ const insertProblem = (
   problemIndex: string,
   name: string,
   canonicalId: string,
+  solvedCount: number | null = 100,
 ): void => {
   db.prepare(
     `
@@ -68,7 +70,7 @@ const insertProblem = (
       @problemIndex,
       @name,
       1500,
-      100,
+      @solvedCount,
       '[]',
       @url,
       '{}',
@@ -80,6 +82,7 @@ const insertProblem = (
     contestId,
     problemIndex,
     name,
+    solvedCount,
     url: `https://codeforces.com/contest/${contestId}/problem/${problemIndex}`,
     canonicalId,
   });
@@ -202,3 +205,79 @@ test("linkCanonicalIdsByRoundPairs merges skipped overrides across paired rounds
     db.close();
   }
 });
+
+test("linkCanonicalIdsByRoundPairs copies catalog solved counts onto standings-only siblings", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+
+  try {
+    insertContest(db, 2255, "Div. 1", 1_700_000_000);
+    insertContest(db, 2256, "Div. 2", 1_700_000_000);
+    insertProblem(db, 2255, "A", "Hot Potatoes", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", 13124);
+    insertProblem(db, 2256, "C", "Hot Potatoes", "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", null);
+    insertProblem(db, 2256, "A", "Solo Task", "cccccccc-cccc-cccc-cccc-cccccccccccc", 24367);
+
+    refreshRoundPairs(db);
+    linkCanonicalIdsByRoundPairs(db);
+
+    const shared = db
+      .prepare(
+        `
+        SELECT contest_id AS contestId, problem_index AS problemIndex, solved_count AS solvedCount
+        FROM problems
+        WHERE name = 'Hot Potatoes'
+        ORDER BY contest_id
+      `,
+      )
+      .all() as { contestId: number; problemIndex: string; solvedCount: number | null }[];
+    const solo = db
+      .prepare(`SELECT solved_count AS solvedCount FROM problems WHERE contest_id = 2256 AND problem_index = 'A'`)
+      .get() as { solvedCount: number };
+
+    assert.equal(shared.length, 2);
+    assert.equal(shared[0]?.contestId, 2255);
+    assert.equal(shared[0]?.problemIndex, "A");
+    assert.equal(shared[0]?.solvedCount, 13124);
+    assert.equal(shared[1]?.contestId, 2256);
+    assert.equal(shared[1]?.problemIndex, "C");
+    assert.equal(shared[1]?.solvedCount, 13124);
+    assert.equal(solo.solvedCount, 24367);
+  } finally {
+    db.close();
+  }
+});
+
+test("propagateCanonicalSolvedCounts updates already-linked siblings when catalog counts change", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+
+  try {
+    insertContest(db, 2255, "Div. 1", 1_700_000_000);
+    insertContest(db, 2256, "Div. 2", 1_700_000_000);
+    insertProblem(db, 2255, "A", "Hot Potatoes", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", 14000);
+    insertProblem(db, 2256, "C", "Hot Potatoes", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", 13124);
+
+    propagateCanonicalSolvedCounts(db);
+
+    const counts = db
+      .prepare(
+        `
+        SELECT contest_id AS contestId, solved_count AS solvedCount
+        FROM problems
+        ORDER BY contest_id
+      `,
+      )
+      .all() as { contestId: number; solvedCount: number }[];
+
+    assert.equal(counts.length, 2);
+    assert.equal(counts[0]?.contestId, 2255);
+    assert.equal(counts[0]?.solvedCount, 14000);
+    assert.equal(counts[1]?.contestId, 2256);
+    assert.equal(counts[1]?.solvedCount, 14000);
+  } finally {
+    db.close();
+  }
+});
+

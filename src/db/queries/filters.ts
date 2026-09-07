@@ -61,6 +61,7 @@ export const problemListJoins = `
   FROM problems p
   LEFT JOIN contests c ON c.id = p.contest_id
   LEFT JOIN canonical_cf_solved cs ON cs.canonical_id = p.canonical_id
+  LEFT JOIN canonical_solved_counts csc ON csc.canonical_id = p.canonical_id
   LEFT JOIN user_problem_overrides upo
     ON upo.user_id = @userId
     AND upo.canonical_id = p.canonical_id
@@ -205,8 +206,17 @@ const canonicalCfSolvedCte = `
   )
 `;
 
+const canonicalSolvedCountsCte = `
+  canonical_solved_counts AS (
+    SELECT canonical_id, MAX(solved_count) AS solved_count
+    FROM problems
+    GROUP BY canonical_id
+  )
+`;
+
 export const dedupedProblemsCte = (filters: ProblemFilters, where: string): string => `
   WITH ${canonicalCfSolvedCte},
+  ${canonicalSolvedCountsCte},
   filtered AS (
     SELECT
       p.contest_id,
@@ -215,7 +225,7 @@ export const dedupedProblemsCte = (filters: ProblemFilters, where: string): stri
       p.name,
       p.rating,
       p.estimated_rating,
-      p.solved_count,
+      csc.solved_count,
       p.tags_json,
       p.url,
       c.name AS contest_name,

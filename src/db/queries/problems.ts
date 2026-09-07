@@ -144,7 +144,11 @@ export const getProblem = (
         p.points,
         p.rating,
         p.estimated_rating,
-        p.solved_count,
+        (
+          SELECT MAX(sibling.solved_count)
+          FROM problems sibling
+          WHERE sibling.canonical_id = p.canonical_id
+        ) AS solved_count,
         p.tags_json,
         p.url,
         c.name AS contest_name,
